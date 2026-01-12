@@ -11,3 +11,75 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* FullCalendar 커스터마이징 */
+.fc-daygrid-day {
+  border: 1px solid #eee !important;
+}
+
+.fc-daygrid-day-frame {
+  padding: 0.25rem;
+}
+
+.fc-day-today {
+  background-color: #f0f8ff !important;
+}
+
+.fc-daygrid-day-top {
+  padding: 0.25rem 0.5rem;
+}
+
+.fc-event {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 0.75rem;
+}
+
+.fc-daygrid-event {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fc-more-link {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #007bff;
+}
+
+/* FullCalendar 커스터마이징 */
+.fc-daygrid-day {
+  border: 1px solid #eee !important;
+}
+
+.fc-daygrid-day-frame {
+  padding: 0.25rem;
+}
+
+.fc-day-today {
+  background-color: #f0f8ff !important;
+}
+
+.fc-daygrid-day-top {
+  padding: 0.25rem 0.5rem;
+}
+
+.fc-event {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 0.75rem;
+}
+
+.fc-daygrid-event {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fc-more-link {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #007bff;
+}
