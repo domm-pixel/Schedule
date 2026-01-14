@@ -91,12 +91,16 @@ const CompanyCalendar: React.FC = () => {
         const endDateStr = endDate ? new Date(endDate).toISOString().split('T')[0] : undefined;
         
         // 단일 날짜 스케줄인 경우 end를 설정하지 않음 (FullCalendar가 자동으로 1일로 표시)
-        // 다중 날짜 스케줄인 경우에만 end를 설정 (exclusive이므로 +1일)
-        let endDatePlusOne: Date | undefined;
+        // 다중 날짜 스케줄인 경우: FullCalendar의 end는 exclusive이므로 endDate까지 표시하려면 endDate + 1일이 필요
+        // 하지만 현재 endDate + 1일을 하면 하루 더 그려지므로, endDate의 날짜만 사용하고 시간을 23:59:59로 설정
+        // 이렇게 하면 endDate까지만 표시됨
+        let endDateForCalendar: string | undefined;
         if (startDateStr && endDateStr && startDateStr !== endDateStr) {
-          // 시작일과 종료일이 다른 경우에만 end 설정
-          endDatePlusOne = new Date(endDateStr);
-          endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
+          // 시작일과 종료일이 다른 경우
+          // endDate의 날짜에 23:59:59를 설정하여 해당 날짜의 끝까지 표시
+          const endDateObj = new Date(endDateStr);
+          endDateObj.setHours(23, 59, 59, 999);
+          endDateForCalendar = endDateObj.toISOString();
         }
 
         // 상태별 색상
@@ -116,7 +120,8 @@ const CompanyCalendar: React.FC = () => {
           title: `[${userName}] ${schedule.taskName}`,
           start: startDate!,
           // 단일 날짜 스케줄인 경우 end를 설정하지 않음
-          end: endDatePlusOne?.toISOString(),
+          // 다중 날짜 스케줄인 경우 endDate까지만 표시 (endDate + 1일이 아닌 endDate의 끝 시간 사용)
+          end: endDateForCalendar,
           extendedProps: {
             schedule,
           },
