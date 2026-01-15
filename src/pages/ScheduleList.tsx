@@ -5,6 +5,7 @@ import { db } from '../firebase/config';
 import { Schedule } from '../types';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
+import LevelTooltip from '../components/LevelTooltip';
 
 const ScheduleList: React.FC = () => {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -153,12 +154,14 @@ const ScheduleList: React.FC = () => {
                 <div style={styles.cardTitle}>
                   <span style={styles.taskId}>[{schedule.userName}]</span>
                   <span style={styles.taskName}>{schedule.taskName}</span>
-                  <span style={{
-                    ...styles.level,
-                    ...styles[`level${schedule.level}` as keyof typeof styles],
-                  }}>
-                    {schedule.level}
-                  </span>
+                  <LevelTooltip level={schedule.level}>
+                    <span style={{
+                      ...styles.level,
+                      ...styles[`level${schedule.level}` as keyof typeof styles],
+                    }}>
+                      {schedule.level}
+                    </span>
+                  </LevelTooltip>
                 </div>
                 <div style={styles.cardActions}>
                   <button
@@ -311,6 +314,9 @@ const styles: { [key: string]: React.CSSProperties } = {
   levelL4: { backgroundColor: '#64b5f6', color: '#01579b' },
   levelL5: { backgroundColor: '#42a5f5', color: '#004d40' },
   levelL6: { backgroundColor: '#2196f3', color: '#ffffff' },
+  level휴가: { backgroundColor: '#fff3e0', color: '#e65100' },
+  level재택: { backgroundColor: '#f3e5f5', color: '#6a1b9a' },
+  level미팅: { backgroundColor: '#e8f5e9', color: '#2e7d32' },
   cardActions: {
     display: 'flex',
     gap: '0.5rem',

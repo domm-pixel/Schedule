@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { Schedule, User } from '../types';
+import { Schedule, User, LEVEL_DESCRIPTIONS } from '../types';
 import { format, parseISO } from 'date-fns';
 import Sidebar from '../components/Sidebar';
+import LevelTooltip from '../components/LevelTooltip';
+import ScheduleDetailModal from '../components/ScheduleDetailModal';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
@@ -62,7 +64,12 @@ const CompanyCalendar: React.FC = () => {
       const querySnapshot = await getDocs(q);
       const schedulesList: Schedule[] = [];
       querySnapshot.forEach((docSnapshot) => {
-        schedulesList.push({ id: docSnapshot.id, ...docSnapshot.data() } as Schedule);
+        const data = { id: docSnapshot.id, ...docSnapshot.data() } as Schedule;
+        // comments 필드가 없을 경우 빈 배열로 초기화
+        if (!data.comments) {
+          data.comments = [];
+        }
+        schedulesList.push(data);
       });
 
       // isPublic이 true인 스케줄만 필터링
@@ -233,59 +240,25 @@ const CompanyCalendar: React.FC = () => {
             editable={false}
             eventDisplay="block"
             displayEventTime={false}
+            eventDidMount={(arg) => {
+              // 각 이벤트에 레벨 설명을 툴팁으로 추가
+              const schedule = arg.event.extendedProps.schedule;
+              const level = schedule?.level;
+              const description = level ? LEVEL_DESCRIPTIONS[level] : '';
+              if (description) {
+                arg.el.setAttribute('title', `${level}: ${description}`);
+              }
+            }}
           />
         </div>
 
         {selectedDate && (
-          <div style={{ marginTop: '2rem', backgroundColor: 'white', border: '1px solid #ddd', borderRadius: '8px', padding: '1.5rem' }}>
-            <h3 style={{ marginBottom: '1rem' }}>
-              {format(selectedDate, 'yyyy년 MM월 dd일')} 업무
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {getSchedulesForDay(selectedDate).length === 0 ? (
-                <div style={{ textAlign: 'center', color: '#666', padding: '2rem' }}>
-                  해당 날짜에 등록된 업무가 없습니다.
-                </div>
-              ) : (
-                getSchedulesForDay(selectedDate).map((schedule) => (
-                  <div key={schedule.id} style={{ padding: '1rem', border: '1px solid #eee', borderRadius: '4px', backgroundColor: '#f8f9fa' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                      <span style={{ fontSize: '0.75rem', color: '#666' }}>[{usersMap[schedule.userId]?.name || schedule.userName}]</span>
-                      <span style={{ fontWeight: '600' }}>{schedule.taskName}</span>
-                      <span style={{
-                        padding: '0.125rem 0.375rem',
-                        backgroundColor: '#e3f2fd',
-                        color: '#1976d2',
-                        borderRadius: '3px',
-                        fontSize: '0.75rem',
-                        fontWeight: '600',
-                      }}>
-                        {schedule.level}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                      <span style={{ fontSize: '0.875rem', color: '#666' }}>
-                        {usersMap[schedule.userId]?.name || schedule.userName}
-                        {usersMap[schedule.userId]?.username && `/${usersMap[schedule.userId].username}`}
-                        {usersMap[schedule.userId]?.team && ` [${usersMap[schedule.userId].team}]`}
-                      </span>
-                      <span style={{
-                        padding: '0.125rem 0.375rem',
-                        borderRadius: '3px',
-                        fontSize: '0.75rem',
-                        fontWeight: '500',
-                        backgroundColor: schedule.status === '진행중' ? '#fff3cd' : schedule.status === '완료' ? '#d4edda' : schedule.status === '연기' ? '#f8d7da' : '#e2e3e5',
-                        color: schedule.status === '진행중' ? '#856404' : schedule.status === '완료' ? '#155724' : schedule.status === '연기' ? '#721c24' : '#383d41',
-                      }}>
-                        {schedule.status}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '0.875rem', color: '#555' }}>{schedule.description}</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+          <ScheduleDetailModal
+            date={selectedDate}
+            schedules={getSchedulesForDay(selectedDate)}
+            usersMap={usersMap}
+            onClose={() => setSelectedDate(null)}
+          />
         )}
       </div>
     </div>

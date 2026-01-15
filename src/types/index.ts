@@ -19,11 +19,20 @@ export interface ScheduleHistory {
   changedAt: any; // 변경일시 (Firebase Timestamp)
 }
 
+// 스케줄 의견 타입
+export interface ScheduleComment {
+  id?: string; // 의견 ID
+  text: string; // 의견 내용
+  createdBy: string; // 작성자 이름
+  createdByUid: string; // 작성자 UID
+  createdAt: any; // 작성일시 (Firebase Timestamp)
+}
+
 export interface Schedule {
   id: string; // Firestore 문서 ID
   taskId: string; // 업무 아이디 (전사적으로 Unique)
   taskName: string; // 업무명
-  level: 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6'; // 레벨
+  level: 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6' | '휴가' | '재택' | '미팅'; // 레벨
   description: string; // 업무 내용
   status: '대기중' | '진행중' | '완료' | '연기'; // 업무 상태
   deadline?: string; // 데드라인 (ISO date string) - 하위 호환성을 위해 유지, startDate/endDate 사용 권장
@@ -36,7 +45,21 @@ export interface Schedule {
   createdAt: string; // 생성일시
   updatedAt?: string; // 수정일시
   history?: ScheduleHistory[]; // 변경 이력
+  comments?: ScheduleComment[]; // 의견 목록
 }
+
+// 레벨 설명 상수
+export const LEVEL_DESCRIPTIONS: { [key: string]: string } = {
+  'L1': '심부름. 단순 육체노동. 사무직으로는 누가 회사에 왔는지 기록하고 커피심부름 하고 청소하는 경리업무 혹은 서비스 업무',
+  'L2': '이미 기록되어 있는 단순한 매뉴얼을 그대로 따라하는 업무.',
+  'L3': '업무를 하는 방법(매뉴얼)을 내부나 외부에서 찾아서 그대로 따라하는 업무(PRS)',
+  'L4': '주어진 룰안에서 업무를 하는 방법을 본인 스스로가 생각하여 최적의 방법으로 혼자서 해결하는 업무(성과개념)',
+  'L5': '타인과 커뮤니케이션을 해서 내가 원하는 시나리오 및 방법대로 업무를 처리할수 있게 타인을 유도하여 업무를 해결하는 업무(성과개념)',
+  'L6': '타인과 커뮤니케이션이나 기존의 룰로 만으로는 해결할수 없는 말그대로 창조의 업무.(성과개념)',
+  '휴가': '휴가',
+  '재택': '재택근무',
+  '미팅': '미팅',
+};
 
 // 주간 뷰를 위한 타입
 export interface WeeklySchedule {

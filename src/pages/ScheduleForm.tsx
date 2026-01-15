@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useHistory, useParams } from 'react-router-dom';
 import { doc, getDoc, setDoc, collection, query, where, getDocs, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { Schedule, ScheduleHistory } from '../types';
+import { Schedule, ScheduleHistory, LEVEL_DESCRIPTIONS } from '../types';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 
@@ -327,13 +327,21 @@ const ScheduleForm: React.FC = () => {
             required
             style={styles.select}
           >
-            <option value="L1">L1</option>
-            <option value="L2">L2</option>
-            <option value="L3">L3</option>
-            <option value="L4">L4</option>
-            <option value="L5">L5</option>
-            <option value="L6">L6</option>
+            <option value="L1" title={LEVEL_DESCRIPTIONS['L1']}>L1</option>
+            <option value="L2" title={LEVEL_DESCRIPTIONS['L2']}>L2</option>
+            <option value="L3" title={LEVEL_DESCRIPTIONS['L3']}>L3</option>
+            <option value="L4" title={LEVEL_DESCRIPTIONS['L4']}>L4</option>
+            <option value="L5" title={LEVEL_DESCRIPTIONS['L5']}>L5</option>
+            <option value="L6" title={LEVEL_DESCRIPTIONS['L6']}>L6</option>
+            <option value="휴가" title={LEVEL_DESCRIPTIONS['휴가']}>휴가</option>
+            <option value="재택" title={LEVEL_DESCRIPTIONS['재택']}>재택</option>
+            <option value="미팅" title={LEVEL_DESCRIPTIONS['미팅']}>미팅</option>
           </select>
+          {LEVEL_DESCRIPTIONS[formData.level] && (
+            <div style={styles.levelDescription}>
+              <strong>{formData.level}:</strong> {LEVEL_DESCRIPTIONS[formData.level]}
+            </div>
+          )}
         </div>
 
         <div style={styles.formGroup}>
@@ -535,6 +543,16 @@ const styles: { [key: string]: React.CSSProperties } = {
     marginTop: '0.25rem',
     color: '#666',
     fontSize: '0.875rem',
+  },
+  levelDescription: {
+    marginTop: '0.75rem',
+    padding: '0.75rem',
+    backgroundColor: '#f8f9fa',
+    border: '1px solid #dee2e6',
+    borderRadius: '4px',
+    fontSize: '0.875rem',
+    lineHeight: '1.6',
+    color: '#495057',
   },
   error: {
     color: '#dc3545',
