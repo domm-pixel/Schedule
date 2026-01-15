@@ -11,6 +11,7 @@ interface ScheduleDetailModalProps {
   schedules: Schedule[];
   usersMap: { [key: string]: User };
   onClose: () => void;
+  onScheduleUpdate?: () => void; // 스케줄 업데이트 후 콜백
 }
 
 const ScheduleDetailModal: React.FC<ScheduleDetailModalProps> = ({
@@ -18,6 +19,7 @@ const ScheduleDetailModal: React.FC<ScheduleDetailModalProps> = ({
   schedules,
   usersMap,
   onClose,
+  onScheduleUpdate,
 }) => {
   const { userData } = useAuth();
   const [comments, setComments] = useState<{ [scheduleId: string]: ScheduleComment[] }>({});
@@ -51,15 +53,15 @@ const ScheduleDetailModal: React.FC<ScheduleDetailModalProps> = ({
   }, [onClose]);
 
   useEffect(() => {
-    // 각 스케줄의 의견 가져오기
+    // 각 스케줄의 의견 가져오기 - 모달이 열릴 때 초기화
+    const initialComments: { [scheduleId: string]: ScheduleComment[] } = {};
     schedules.forEach((schedule) => {
-      if (schedule.comments && schedule.comments.length > 0) {
-        setComments((prev) => ({
-          ...prev,
-          [schedule.id]: schedule.comments || [],
-        }));
-      }
+      const scheduleComments = schedule.comments || [];
+      console.log(`스케줄 ${schedule.id}의 초기 comments:`, scheduleComments);
+      initialComments[schedule.id] = scheduleComments;
     });
+    console.log('모달 열릴 때 초기 comments 상태:', initialComments);
+    setComments(initialComments);
   }, [schedules]);
 
   const handleAddComment = async (scheduleId: string) => {
@@ -79,11 +81,13 @@ const ScheduleDetailModal: React.FC<ScheduleDetailModalProps> = ({
       const currentSchedule = scheduleDoc.data() as Schedule;
       const existingComments = currentSchedule.comments || [];
 
+      // serverTimestamp()는 배열 안에서 사용할 수 없으므로 클라이언트 시간 사용
+      // 업데이트 후 다시 읽어서 최신 데이터 가져오기
       const newCommentObj: ScheduleComment = {
         text: commentText,
         createdBy: userData.name,
         createdByUid: userData.uid,
-        createdAt: serverTimestamp(),
+        createdAt: new Date(), // 클라이언트 시간 사용
       };
 
       const updatedComments = [...existingComments, newCommentObj];
@@ -93,15 +97,34 @@ const ScheduleDetailModal: React.FC<ScheduleDetailModalProps> = ({
         updatedAt: serverTimestamp(),
       });
 
-      setComments((prev) => ({
-        ...prev,
-        [scheduleId]: updatedComments,
-      }));
+      // 업데이트 후 다시 읽어서 Firestore에 저장된 실제 데이터 가져오기
+      const updatedDoc = await getDoc(scheduleRef);
+      if (updatedDoc.exists()) {
+        const updatedSchedule = updatedDoc.data() as Schedule;
+        const savedComments = updatedSchedule.comments || [];
+        console.log('의견 추가 후 Firestore에서 읽은 comments:', savedComments);
+        setComments((prev) => ({
+          ...prev,
+          [scheduleId]: savedComments,
+        }));
+      } else {
+        // 만약 읽기 실패 시 로컬 상태 업데이트
+        console.log('Firestore 읽기 실패, 로컬 상태 업데이트:', updatedComments);
+        setComments((prev) => ({
+          ...prev,
+          [scheduleId]: updatedComments,
+        }));
+      }
 
       setNewComment((prev) => ({
         ...prev,
         [scheduleId]: '',
       }));
+
+      // 부모 컴포넌트에 업데이트 알림
+      if (onScheduleUpdate) {
+        onScheduleUpdate();
+      }
     } catch (error) {
       console.error('의견 추가 실패:', error);
       alert('의견 추가에 실패했습니다.');
@@ -113,8 +136,24 @@ const ScheduleDetailModal: React.FC<ScheduleDetailModalProps> = ({
   const formatCommentDate = (timestamp: any) => {
     if (!timestamp) return '';
     try {
-      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-      return format(date, 'yyyy-MM-dd HH:mm');
+      // Firestore Timestamp인 경우 toDate() 사용
+      if (timestamp && typeof timestamp.toDate === 'function') {
+        const date = timestamp.toDate();
+        return format(date, 'yyyy-MM-dd HH:mm');
+      }
+      // Date 객체인 경우
+      if (timestamp instanceof Date) {
+        return format(timestamp, 'yyyy-MM-dd HH:mm');
+      }
+      // 문자열인 경우
+      if (typeof timestamp === 'string') {
+        return format(new Date(timestamp), 'yyyy-MM-dd HH:mm');
+      }
+      // 숫자 타임스탬프인 경우
+      if (typeof timestamp === 'number') {
+        return format(new Date(timestamp), 'yyyy-MM-dd HH:mm');
+      }
+      return '';
     } catch {
       return '';
     }
@@ -147,6 +186,7 @@ const ScheduleDetailModal: React.FC<ScheduleDetailModalProps> = ({
           ) : (
             schedules.map((schedule) => {
               const scheduleComments = comments[schedule.id] || [];
+              console.log(`스케줄 ${schedule.id} 렌더링 시 comments:`, scheduleComments);
               return (
                 <div key={schedule.id} style={scheduleCardStyles}>
                   <div style={scheduleHeaderStyles}>

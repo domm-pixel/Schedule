@@ -25,6 +25,7 @@ type CalendarEvent = {
 const CompanyCalendar: React.FC = () => {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null); // 선택된 특정 스케줄 ID
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<string>('전체');
   const [usersMap, setUsersMap] = useState<{ [key: string]: User }>({});
@@ -169,14 +170,18 @@ const CompanyCalendar: React.FC = () => {
   };
 
   const handleDateClick = (arg: any) => {
+    // 날짜의 빈공간 클릭 시: 날짜만 설정하고 스케줄 ID는 null (전체 스케줄 표시)
     setSelectedDate(arg.date);
+    setSelectedScheduleId(null);
   };
 
   const handleEventClick = (arg: any) => {
+    // 특정 이벤트 클릭 시: 날짜와 스케줄 ID 모두 설정 (해당 스케줄만 표시)
     const schedule = arg.event.extendedProps.schedule;
     const startDate = schedule.startDate ? parseISO(schedule.startDate) : schedule.deadline ? parseISO(schedule.deadline) : null;
     if (startDate) {
       setSelectedDate(startDate);
+      setSelectedScheduleId(schedule.id); // 특정 스케줄 ID 설정
     }
   };
 
@@ -255,9 +260,17 @@ const CompanyCalendar: React.FC = () => {
         {selectedDate && (
           <ScheduleDetailModal
             date={selectedDate}
-            schedules={getSchedulesForDay(selectedDate)}
+            schedules={
+              selectedScheduleId
+                ? getSchedulesForDay(selectedDate).filter(s => s.id === selectedScheduleId)
+                : getSchedulesForDay(selectedDate)
+            }
             usersMap={usersMap}
-            onClose={() => setSelectedDate(null)}
+            onClose={() => {
+              setSelectedDate(null);
+              setSelectedScheduleId(null);
+            }}
+            onScheduleUpdate={fetchSchedules}
           />
         )}
       </div>
