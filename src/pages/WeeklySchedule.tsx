@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { collection, getDocs, query, where, doc, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import React, { useState, useEffect, useCallback } from 'react';
+import { collection, getDocs, query, where, doc, updateDoc, serverTimestamp, getDoc, orderBy } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { Schedule, ScheduleHistory } from '../types';
+import { Schedule, Vacation } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { 
   startOfWeek, endOfWeek, addWeeks, format, eachDayOfInterval, 
@@ -24,11 +24,7 @@ const WeeklySchedule: React.FC = () => {
   const ROW_MARGIN = 4;  // 스케줄 바 사이의 간격
   const HEADER_HEIGHT = 40; // 날짜 헤더 높이
 
-  useEffect(() => {
-    fetchSchedules();
-  }, [currentWeek, userData]);
-
-  const fetchSchedules = async () => {
+  const fetchSchedules = useCallback(async () => {
     if (!userData) return;
 
     try {
@@ -47,8 +43,62 @@ const WeeklySchedule: React.FC = () => {
         schedulesList.push({ id: docSnapshot.id, ...docSnapshot.data() } as Schedule);
       });
 
+      // 휴가(vacations) 조회 - 본인 휴가만
+      const vQuery = query(
+        collection(db, 'vacations'),
+        where('userId', '==', userData.uid),
+        orderBy('date', 'desc')
+      );
+      const vacationSnapshot = await getDocs(vQuery);
+      const vacationDocs: Vacation[] = [];
+      vacationSnapshot.forEach((docSnapshot) => {
+        const data = docSnapshot.data() as any;
+        vacationDocs.push({
+          id: docSnapshot.id,
+          userId: data.userId,
+          date: data.date,
+          days: data.days,
+          reason: data.reason,
+          createdByUid: data.createdByUid,
+          createdByName: data.createdByName,
+          createdAt: data.createdAt,
+        } as Vacation);
+      });
+
+      // 휴가를 스케줄 형태로 변환
+      const vacationSchedules: Schedule[] = vacationDocs.map((v) => {
+        const dateStr = v.date;
+        const isoDate = dateStr.includes('T') ? dateStr : `${dateStr}T00:00:00.000Z`;
+        const createdAt =
+          (v.createdAt as any)?.toDate?.()?.toISOString?.() ??
+          (typeof v.createdAt === 'string' ? v.createdAt : new Date().toISOString());
+
+        return {
+          id: `vacation_${v.id}`,
+          taskId: `vacation_${v.id}`,
+          taskName: '휴가',
+          level: '휴가',
+          description: v.reason || '휴가',
+          status: '완료',
+          startDate: isoDate,
+          endDate: isoDate,
+          deadline: isoDate,
+          isPublic: false,
+          note: undefined,
+          userId: v.userId,
+          userName: userData.name,
+          createdAt,
+          updatedAt: undefined,
+          history: [],
+          comments: [],
+        } as Schedule;
+      });
+
+      // 업무 스케줄 + 휴가 스케줄 합치기
+      const allSchedules = [...schedulesList, ...vacationSchedules];
+
       // 이번 주 범위와 겹치는 스케줄만 필터링
-      const weekSchedules = schedulesList.filter((schedule) => {
+      const weekSchedules = allSchedules.filter((schedule) => {
         const startDate = schedule.startDate ? parseISO(schedule.startDate) : schedule.deadline ? parseISO(schedule.deadline) : null;
         const endDate = schedule.endDate ? parseISO(schedule.endDate) : schedule.deadline ? parseISO(schedule.deadline) : null;
         
@@ -68,7 +118,11 @@ const WeeklySchedule: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentWeek, userData]);
+
+  useEffect(() => {
+    fetchSchedules();
+  }, [fetchSchedules]);
 
   const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 });
   const weekEnd = endOfWeek(currentWeek, { weekStartsOn: 1 });

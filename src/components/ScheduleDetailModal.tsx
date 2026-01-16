@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { doc, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { Schedule, ScheduleComment, User } from '../types';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
 import LevelTooltip from './LevelTooltip';
 

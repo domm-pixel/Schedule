@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useHistory } from 'react-router-dom';
-import { collection, getDocs, doc, deleteDoc, query, where, orderBy } from 'firebase/firestore';
+import { collection, getDocs, doc, deleteDoc, query, where } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { Schedule } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -14,11 +14,7 @@ const ScheduleList: React.FC = () => {
   const { userData } = useAuth();
   const history = useHistory();
 
-  useEffect(() => {
-    fetchSchedules();
-  }, [filterStatus, userData]);
-
-  const fetchSchedules = async () => {
+  const fetchSchedules = useCallback(async () => {
     try {
       setLoading(true);
       
@@ -39,8 +35,11 @@ const ScheduleList: React.FC = () => {
         schedulesList.push({ id: docSnapshot.id, ...docSnapshot.data() } as Schedule);
       });
 
+      // 휴가(레벨 '휴가') 항목은 내 스케줄 관리에서 제외
+      const nonVacationSchedules = schedulesList.filter((s) => s.level !== '휴가');
+
       // createdAt 기준으로 정렬 (내림차순)
-      schedulesList.sort((a, b) => {
+      nonVacationSchedules.sort((a, b) => {
         const dateA = a.createdAt ? (a.createdAt as any).toMillis?.() || new Date(a.createdAt).getTime() : 0;
         const dateB = b.createdAt ? (b.createdAt as any).toMillis?.() || new Date(b.createdAt).getTime() : 0;
         return dateB - dateA; // 내림차순
@@ -48,8 +47,8 @@ const ScheduleList: React.FC = () => {
 
       // 상태 필터링
       const filtered = filterStatus === '전체'
-        ? schedulesList
-        : schedulesList.filter(s => s.status === filterStatus);
+        ? nonVacationSchedules
+        : nonVacationSchedules.filter(s => s.status === filterStatus);
 
       setSchedules(filtered);
     } catch (error) {
@@ -57,7 +56,11 @@ const ScheduleList: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterStatus, userData]);
+
+  useEffect(() => {
+    fetchSchedules();
+  }, [fetchSchedules]);
 
   const handleDelete = async (scheduleId: string) => {
     if (!window.confirm('정말 이 업무를 삭제하시겠습니까?')) {

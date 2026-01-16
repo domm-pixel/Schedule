@@ -14,6 +14,11 @@ const Sidebar: React.FC = () => {
       icon: '📋',
     },
     {
+      title: '내 휴가 관리',
+      path: '/vacations/my',
+      icon: '🏖️',
+    },
+    {
       title: '주간 스케줄 관리',
       path: '/schedule/weekly',
       icon: '📅',
@@ -81,6 +86,18 @@ const Sidebar: React.FC = () => {
           >
             <span style={styles.menuIcon}>👥</span>
             <span style={styles.menuText}>회원 관리</span>
+          </div>
+        )}
+        {userData?.role === 'admin' && (
+          <div
+            style={{
+              ...styles.menuItem,
+              ...(isActive('/vacations/admin') ? styles.menuItemActive : {}),
+            }}
+            onClick={() => history.push('/vacations/admin')}
+          >
+            <span style={styles.menuIcon}>🛠️</span>
+            <span style={styles.menuText}>휴가 관리(관리자)</span>
           </div>
         )}
       </nav>

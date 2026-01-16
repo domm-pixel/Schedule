@@ -1,18 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useHistory } from 'react-router-dom';
+import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { User } from '../types';
+import { User, Vacation } from '../types';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
+import { addMonths, addYears, isAfter, isBefore, parseISO, differenceInYears } from 'date-fns';
 
 const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
+  const [vacations, setVacations] = useState<Vacation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
   const { userData } = useAuth();
+  const history = useHistory();
 
   useEffect(() => {
     fetchUsers();
+    fetchVacations();
   }, []);
 
   const fetchUsers = async () => {
@@ -28,6 +32,124 @@ const UserManagement: React.FC = () => {
       console.error('사용자 목록 가져오기 실패:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchVacations = async () => {
+    try {
+      const q = query(collection(db, 'vacations'), orderBy('date', 'desc'));
+      const snapshot = await getDocs(q);
+      const list: Vacation[] = [];
+      snapshot.forEach((d) => {
+        const data = d.data() as any;
+        list.push({
+          id: d.id,
+          userId: data.userId,
+          date: data.date,
+          days: data.days,
+          reason: data.reason,
+          createdByUid: data.createdByUid,
+          createdByName: data.createdByName,
+          createdAt: data.createdAt,
+        } as Vacation);
+      });
+      setVacations(list);
+    } catch (error) {
+      console.error('휴가 내역 조회 실패:', error);
+    }
+  };
+
+  const calculateAccrual = useCallback((user: User, userId: string): { accrued: number; used: number; remaining: number; substituteDays: number } => {
+    const userVacations = vacations.filter((v) => v.userId === userId);
+    const substituteDays = (user.substituteHolidays || []).length;
+    
+    if (!user.hireDate) {
+      return { accrued: 0, used: userVacations.length, remaining: -userVacations.length + substituteDays, substituteDays };
+    }
+
+    const today = new Date();
+    const hireDate = parseISO(user.hireDate);
+    if (isNaN(hireDate.getTime()) || isAfter(hireDate, today)) {
+      return { accrued: 0, used: userVacations.length, remaining: -userVacations.length + substituteDays, substituteDays };
+    }
+
+    const yearsSinceHire = differenceInYears(today, hireDate);
+    const oneYearAnniversary = addYears(hireDate, 1);
+    
+    let accrued = 0;
+
+    // 1년 미만: 월차 계산 (최대 11개, 1년 시점에 지급)
+    if (yearsSinceHire < 1) {
+      // 입사 후 경과 개월 수 계산
+      let monthsElapsed = 0;
+      let base = hireDate;
+      
+      while (!isAfter(base, today) && monthsElapsed < 11) {
+        monthsElapsed += 1;
+        base = addMonths(hireDate, monthsElapsed);
+      }
+      
+      // 1년이 되는 시점에 월차 11개 지급
+      if (!isBefore(oneYearAnniversary, today)) {
+        // 아직 1년이 안 지났으면 경과 개월 수만큼
+        accrued = Math.min(monthsElapsed, 11);
+      } else {
+        // 1년이 지났으면 월차 11개 모두 지급
+        accrued = 11;
+      }
+    } else {
+      // 1년 초과: 월차 11개 + 관리자가 입력한 연차 일수
+      accrued = 11 + (user.annualLeaveDays || 0);
+    }
+
+    const used = userVacations.length;
+    const remaining = accrued - used + substituteDays;
+    return { accrued, used, remaining, substituteDays };
+  }, [vacations]);
+
+  const usersWithStats = useMemo(() => {
+    return users.map((user) => ({
+      ...user,
+      vacationStats: calculateAccrual(user, user.uid),
+    }));
+  }, [users, calculateAccrual]);
+
+  const handleHireDateChange = async (userId: string, hireDate: string) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        hireDate: hireDate || null,
+        updatedAt: new Date().toISOString(),
+      });
+      fetchUsers();
+    } catch (error) {
+      console.error('입사일 변경 실패:', error);
+      alert('입사일 변경에 실패했습니다.');
+    }
+  };
+
+  const handleMakeAllAdmin = async () => {
+    if (!window.confirm('현재 등록된 모든 사용자의 역할을 관리자(admin)로 변경하시겠습니까?')) {
+      return;
+    }
+
+    try {
+      const q = query(collection(db, 'users'));
+      const snapshot = await getDocs(q);
+      const batch = writeBatch(db);
+
+      snapshot.forEach((docSnapshot) => {
+        batch.update(doc(db, 'users', docSnapshot.id), {
+          role: 'admin',
+          updatedAt: new Date().toISOString(),
+        });
+      });
+
+      await batch.commit();
+      fetchUsers();
+      alert('모든 사용자의 역할이 관리자(admin)로 변경되었습니다.');
+    } catch (error) {
+      console.error('전체 관리자 변경 실패:', error);
+      alert('전체 관리자 변경에 실패했습니다.');
     }
   };
 
@@ -58,6 +180,76 @@ const UserManagement: React.FC = () => {
     }
   };
 
+  const handleAnnualLeaveDaysChange = async (userId: string, days: string) => {
+    try {
+      const annualLeaveDays = days ? parseInt(days, 10) : null;
+      await updateDoc(doc(db, 'users', userId), {
+        annualLeaveDays: annualLeaveDays,
+        updatedAt: new Date().toISOString(),
+      });
+      fetchUsers();
+    } catch (error) {
+      console.error('연차 일수 변경 실패:', error);
+      alert('연차 일수 변경에 실패했습니다.');
+    }
+  };
+
+  const handleAddSubstituteHoliday = async (userId: string) => {
+    const dateStr = prompt('대체 휴무일을 입력하세요 (yyyy-MM-dd 형식):');
+    if (!dateStr) return;
+
+    try {
+      const user = users.find((u) => u.id === userId);
+      if (!user) return;
+
+      const currentHolidays = user.substituteHolidays || [];
+      if (currentHolidays.includes(dateStr)) {
+        alert('이미 등록된 대체 휴무일입니다.');
+        return;
+      }
+
+      await updateDoc(doc(db, 'users', userId), {
+        substituteHolidays: [...currentHolidays, dateStr],
+        updatedAt: new Date().toISOString(),
+      });
+      fetchUsers();
+    } catch (error) {
+      console.error('대체 휴무일 추가 실패:', error);
+      alert('대체 휴무일 추가에 실패했습니다.');
+    }
+  };
+
+  const handleRemoveSubstituteHoliday = async (userId: string, dateStr: string) => {
+    if (!window.confirm('이 대체 휴무일을 삭제하시겠습니까?')) return;
+
+    try {
+      const user = users.find((u) => u.id === userId);
+      if (!user) return;
+
+      const currentHolidays = user.substituteHolidays || [];
+      await updateDoc(doc(db, 'users', userId), {
+        substituteHolidays: currentHolidays.filter((d) => d !== dateStr),
+        updatedAt: new Date().toISOString(),
+      });
+      fetchUsers();
+    } catch (error) {
+      console.error('대체 휴무일 삭제 실패:', error);
+      alert('대체 휴무일 삭제에 실패했습니다.');
+    }
+  };
+
+  const isOverOneYear = (hireDateStr?: string | null): boolean => {
+    if (!hireDateStr) return false;
+    const today = new Date();
+    const hireDate = parseISO(hireDateStr);
+    if (isNaN(hireDate.getTime())) return false;
+    return differenceInYears(today, hireDate) >= 1;
+  };
+
+  const handleGoToVacationManagement = (userUid: string) => {
+    history.push('/vacations/admin', { selectedUserId: userUid });
+  };
+
   if (loading) {
     return <div style={styles.loading}>로딩 중...</div>;
   }
@@ -67,7 +259,15 @@ const UserManagement: React.FC = () => {
       <Sidebar />
       <div style={{ marginLeft: '250px', width: 'calc(100% - 250px)', padding: '2rem' }}>
         <div style={styles.container}>
-          <h1 style={styles.title}>회원 관리</h1>
+          <div style={styles.headerRow}>
+            <h1 style={styles.title}>회원 관리</h1>
+            <button
+              style={styles.makeAllAdminButton}
+              onClick={handleMakeAllAdmin}
+            >
+              전체를 관리자 권한으로 변경
+            </button>
+          </div>
       <div style={styles.tableContainer}>
         <table style={styles.table}>
           <thead>
@@ -75,17 +275,43 @@ const UserManagement: React.FC = () => {
               <th style={styles.th}>이름</th>
               <th style={styles.th}>아이디</th>
               <th style={styles.th}>팀</th>
+              <th style={styles.th}>입사일</th>
+              <th style={styles.th}>연차 일수</th>
               <th style={styles.th}>역할</th>
-              <th style={styles.th}>가입일</th>
+              <th style={styles.th}>잔여 휴가</th>
+              <th style={styles.th}>대체 휴무</th>
+              <th style={styles.th}>휴가 관리</th>
               <th style={styles.th}>작업</th>
             </tr>
           </thead>
           <tbody>
-            {users.map((user) => (
+            {usersWithStats.map((user) => (
               <tr key={user.id}>
                 <td style={styles.td}>{user.name}</td>
                 <td style={styles.td}>{user.username}</td>
                 <td style={styles.td}>{user.team}</td>
+              <td style={styles.td}>
+                <input
+                  type="date"
+                  value={user.hireDate ? new Date(user.hireDate).toISOString().slice(0, 10) : ''}
+                  onChange={(e) => handleHireDateChange(user.id, e.target.value)}
+                  style={styles.input}
+                />
+              </td>
+              <td style={styles.td}>
+                {isOverOneYear(user.hireDate) ? (
+                  <input
+                    type="number"
+                    min="0"
+                    value={user.annualLeaveDays ?? ''}
+                    onChange={(e) => handleAnnualLeaveDaysChange(user.id, e.target.value)}
+                    placeholder="연차 일수"
+                    style={styles.numberInput}
+                  />
+                ) : (
+                  <span style={styles.noData}>월차 자동</span>
+                )}
+              </td>
                 <td style={styles.td}>
                   <select
                     value={user.role}
@@ -97,7 +323,71 @@ const UserManagement: React.FC = () => {
                   </select>
                 </td>
                 <td style={styles.td}>
-                  {user.createdAt && new Date(user.createdAt).toLocaleDateString('ko-KR')}
+                  {user.vacationStats ? (
+                    <div style={styles.vacationStats}>
+                      <div style={styles.vacationStatItem}>
+                        <span style={styles.vacationLabel}>발생:</span>
+                        <span>{user.vacationStats.accrued}일</span>
+                      </div>
+                      <div style={styles.vacationStatItem}>
+                        <span style={styles.vacationLabel}>사용:</span>
+                        <span>{user.vacationStats.used}일</span>
+                      </div>
+                      {user.vacationStats.substituteDays > 0 && (
+                        <div style={styles.vacationStatItem}>
+                          <span style={styles.vacationLabel}>대체:</span>
+                          <span style={{ color: '#17a2b8' }}>+{user.vacationStats.substituteDays}일</span>
+                        </div>
+                      )}
+                      <div style={styles.vacationStatItem}>
+                        <span style={styles.vacationLabel}>잔여:</span>
+                        <span style={{
+                          ...styles.vacationRemaining,
+                          color: user.vacationStats.remaining < 0 ? '#dc3545' : user.vacationStats.remaining === 0 ? '#ffc107' : '#28a745'
+                        }}>
+                          {user.vacationStats.remaining}일
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <span style={styles.noData}>-</span>
+                  )}
+                </td>
+                <td style={styles.td}>
+                  <div style={styles.substituteHolidays}>
+                    <button
+                      onClick={() => handleAddSubstituteHoliday(user.id)}
+                      style={styles.addButton}
+                      title="대체 휴무일 추가"
+                    >
+                      +
+                    </button>
+                    <div style={styles.substituteList}>
+                      {(user.substituteHolidays || []).map((dateStr) => (
+                        <div key={dateStr} style={styles.substituteItem}>
+                          <span>{new Date(dateStr).toLocaleDateString('ko-KR')}</span>
+                          <button
+                            onClick={() => handleRemoveSubstituteHoliday(user.id, dateStr)}
+                            style={styles.removeButton}
+                            title="삭제"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      {(!user.substituteHolidays || user.substituteHolidays.length === 0) && (
+                        <span style={styles.noData}>없음</span>
+                      )}
+                    </div>
+                  </div>
+                </td>
+                <td style={styles.td}>
+                  <button
+                    onClick={() => handleGoToVacationManagement(user.uid)}
+                    style={styles.vacationManageButton}
+                  >
+                    휴가 관리
+                  </button>
                 </td>
                 <td style={styles.td}>
                   {user.id !== userData?.id && (
@@ -125,8 +415,13 @@ const styles: { [key: string]: React.CSSProperties } = {
     maxWidth: '1200px',
     margin: '0 auto',
   },
-  title: {
+  headerRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: '2rem',
+  },
+  title: {
     color: '#333',
   },
   loading: {
@@ -163,6 +458,103 @@ const styles: { [key: string]: React.CSSProperties } = {
   deleteButton: {
     padding: '0.5rem 1rem',
     backgroundColor: '#dc3545',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+  },
+  input: {
+    padding: '0.5rem',
+    border: '1px solid #ddd',
+    borderRadius: '4px',
+    fontSize: '0.9rem',
+  },
+  makeAllAdminButton: {
+    padding: '0.5rem 1rem',
+    backgroundColor: '#6c757d',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+  },
+  vacationStats: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.25rem',
+    fontSize: '0.85rem',
+  },
+  vacationStatItem: {
+    display: 'flex',
+    gap: '0.5rem',
+  },
+  vacationLabel: {
+    fontWeight: '600',
+    color: '#666',
+    minWidth: '40px',
+  },
+  vacationRemaining: {
+    fontWeight: '600',
+  },
+  noData: {
+    color: '#999',
+    fontSize: '0.9rem',
+  },
+  numberInput: {
+    padding: '0.5rem',
+    border: '1px solid #ddd',
+    borderRadius: '4px',
+    fontSize: '0.9rem',
+    width: '80px',
+  },
+  substituteHolidays: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
+  },
+  addButton: {
+    padding: '0.25rem 0.5rem',
+    backgroundColor: '#17a2b8',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    width: '30px',
+    height: '30px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  substituteList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.25rem',
+    maxHeight: '150px',
+    overflowY: 'auto',
+  },
+  substituteItem: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0.25rem 0.5rem',
+    backgroundColor: '#e7f3ff',
+    borderRadius: '4px',
+    fontSize: '0.85rem',
+  },
+  removeButton: {
+    padding: '0 0.25rem',
+    backgroundColor: 'transparent',
+    color: '#dc3545',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '1.2rem',
+    lineHeight: 1,
+  },
+  vacationManageButton: {
+    padding: '0.5rem 1rem',
+    backgroundColor: '#17a2b8',
     color: 'white',
     border: 'none',
     borderRadius: '4px',

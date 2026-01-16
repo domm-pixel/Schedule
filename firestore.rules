@@ -1,15 +1,24 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // 공통: 관리자 여부 확인 함수
+    function isAdmin() {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
     // 사용자 컬렉션
     match /users/{userId} {
       // 읽기: 인증된 사용자만 가능
       allow read: if request.auth != null;
-      // 쓰기: 인증된 사용자만 자신의 문서에 쓰기 가능
-      allow write: if request.auth != null && request.auth.uid == userId;
+      // 생성: 인증된 사용자만 자신의 문서 생성 가능
+      allow create: if request.auth != null && request.auth.uid == userId;
+      // 수정: 본인 또는 관리자는 수정 가능
+      allow update: if request.auth != null && 
+        (request.auth.uid == userId || isAdmin());
+      // 삭제: 본인 또는 관리자는 삭제 가능
       allow delete: if request.auth != null && 
-        (request.auth.uid == userId || 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+        (request.auth.uid == userId || isAdmin());
     }
     
     // 스케줄 컬렉션
@@ -17,9 +26,50 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow create: if request.auth != null && 
         request.resource.data.userId == request.auth.uid;
-      allow update, delete: if request.auth != null && 
+      
+      // 업데이트 권한
+      allow update: if request.auth != null && (
+        // 1. 소유자 또는 admin은 모든 필드 업데이트 가능
+        (resource.data.userId == request.auth.uid || 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+        // 2. 인증된 모든 사용자는 comments 필드만 업데이트 가능 (의견 추가)
+        // 다른 중요 필드들은 변경되지 않고, comments만 변경되었는지 확인
+        (
+          // 모든 중요 필드들이 변경되지 않았는지 확인
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.taskId == resource.data.taskId &&
+          request.resource.data.taskName == resource.data.taskName &&
+          request.resource.data.level == resource.data.level &&
+          request.resource.data.status == resource.data.status &&
+          request.resource.data.description == resource.data.description &&
+          request.resource.data.startDate == resource.data.startDate &&
+          request.resource.data.endDate == resource.data.endDate &&
+          request.resource.data.isPublic == resource.data.isPublic &&
+          request.resource.data.userName == resource.data.userName &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          // comments 필드는 변경 가능 (배열 비교는 어려우므로 존재 여부만 확인)
+          request.resource.data.keys().hasAll(['comments', 'updatedAt'])
+        )
+      );
+      
+      allow delete: if request.auth != null && 
         (resource.data.userId == request.auth.uid || 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+    }
+
+    // 휴가(vacations) 컬렉션
+    match /vacations/{vacationId} {
+      // 읽기: 전사 스케줄 열람을 위해 모든 인증된 사용자가 조회 가능
+      // (개인 휴가 관리 화면에서는 클라이언트에서 필터링)
+      allow read: if request.auth != null;
+
+      // 생성: 본인은 자신의 휴가만 생성 가능, 관리자는 누구 것이라도 생성 가능
+      allow create: if request.auth != null &&
+        (request.resource.data.userId == request.auth.uid || isAdmin());
+
+      // 수정/삭제: 본인은 자신의 휴가만, 관리자는 전체 가능
+      allow update, delete: if request.auth != null &&
+        (resource.data.userId == request.auth.uid || isAdmin());
     }
   }
 }

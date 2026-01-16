@@ -6,6 +6,9 @@ export interface User {
   username: string; // 아이디 (로그인용)
   team: string; // 팀
   role: 'admin' | 'user'; // 역할: 관리자 또는 일반 사용자
+  hireDate?: string; // 입사일 (yyyy-MM-dd 형식, 선택값)
+  annualLeaveDays?: number; // 1년 초과 시 연차 일수 (직접 입력)
+  substituteHolidays?: string[]; // 대체 휴무일 배열 (yyyy-MM-dd 형식)
   createdAt: string; // 생성일시
   updatedAt?: string; // 수정일시
 }
@@ -65,4 +68,16 @@ export const LEVEL_DESCRIPTIONS: { [key: string]: string } = {
 export interface WeeklySchedule {
   week: string; // 주차 식별자 (예: "2024-01-01" - 해당 주의 월요일)
   schedules: Schedule[]; // 해당 주의 스케줄들
+}
+
+// 휴가(연차) 타입
+export interface Vacation {
+  id: string; // Firestore 문서 ID
+  userId: string; // 대상 사용자 UID
+  date: string; // 사용 일자 (yyyy-MM-dd)
+  days: number; // 사용 일수 (기본 1)
+  reason?: string; // 사유
+  createdByUid: string; // 입력한 사람 UID
+  createdByName: string; // 입력한 사람 이름
+  createdAt: any; // 생성일시 (Firebase Timestamp)
 }

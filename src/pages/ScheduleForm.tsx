@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useHistory, useParams } from 'react-router-dom';
-import { doc, getDoc, setDoc, collection, query, where, getDocs, serverTimestamp, addDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, getDocs, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { Schedule, ScheduleHistory, LEVEL_DESCRIPTIONS } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -333,7 +333,7 @@ const ScheduleForm: React.FC = () => {
             <option value="L4" title={LEVEL_DESCRIPTIONS['L4']}>L4</option>
             <option value="L5" title={LEVEL_DESCRIPTIONS['L5']}>L5</option>
             <option value="L6" title={LEVEL_DESCRIPTIONS['L6']}>L6</option>
-            <option value="휴가" title={LEVEL_DESCRIPTIONS['휴가']}>휴가</option>
+            {/* 휴가는 별도 휴가 관리 화면에서만 사용 */}
             <option value="재택" title={LEVEL_DESCRIPTIONS['재택']}>재택</option>
             <option value="미팅" title={LEVEL_DESCRIPTIONS['미팅']}>미팅</option>
           </select>
