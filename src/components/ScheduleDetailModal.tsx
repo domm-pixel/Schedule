@@ -217,8 +217,20 @@ const ScheduleDetailModal: React.FC<ScheduleDetailModalProps> = ({
                         {usersMap[schedule.userId]?.team && ` [${usersMap[schedule.userId].team}]`}
                       </span>
                     </div>
+                    {schedule.startTime && schedule.endTime && (
+                      <div style={infoRowStyles}>
+                        <span style={infoLabelStyles}>시간:</span>
+                        <span>{schedule.startTime} ~ {schedule.endTime}</span>
+                      </div>
+                    )}
+                    {schedule.level === '휴가' && schedule.note && (
+                      <div style={infoRowStyles}>
+                        <span style={infoLabelStyles}>대직자:</span>
+                        <span>{schedule.note.replace('대직자: ', '')}</span>
+                      </div>
+                    )}
                     <div style={infoRowStyles}>
-                      <span style={infoLabelStyles}>업무 내용:</span>
+                      <span style={infoLabelStyles}>{schedule.level === '휴가' ? '사유' : '업무 내용'}:</span>
                       <span>{schedule.description}</span>
                     </div>
                   </div>

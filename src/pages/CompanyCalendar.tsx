@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { Schedule, User, LEVEL_DESCRIPTIONS, Vacation } from '../types';
@@ -8,6 +8,7 @@ import ScheduleDetailModal from '../components/ScheduleDetailModal';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
+import html2canvas from 'html2canvas';
 
 type CalendarEvent = {
   id: string;
@@ -28,6 +29,8 @@ const CompanyCalendar: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<string>('전체');
   const [usersMap, setUsersMap] = useState<{ [key: string]: User }>({});
+  const [downloading, setDownloading] = useState(false);
+  const calendarRef = useRef<HTMLDivElement>(null);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -86,6 +89,7 @@ const CompanyCalendar: React.FC = () => {
           date: data.date,
           days: data.days,
           reason: data.reason,
+          substituteUserName: data.substituteUserName,
           createdByUid: data.createdByUid,
           createdByName: data.createdByName,
           createdAt: data.createdAt,
@@ -111,7 +115,7 @@ const CompanyCalendar: React.FC = () => {
           endDate: isoDate,
           deadline: isoDate,
           isPublic: true,
-          note: undefined,
+          note: v.substituteUserName ? `대직자: ${v.substituteUserName}` : undefined,
           userId: v.userId,
           userName: '', // 실제 표시는 usersMap을 통해 이름을 가져옴
           createdAt,
@@ -150,6 +154,20 @@ const CompanyCalendar: React.FC = () => {
         const startDateStr = startDate ? new Date(startDate).toISOString().split('T')[0] : undefined;
         const endDateStr = endDate ? new Date(endDate).toISOString().split('T')[0] : undefined;
         
+        // 시간 정보가 있는 경우 (미팅) 날짜와 시간을 합치기
+        let startDateTime: string | undefined;
+        let endDateTime: string | undefined;
+        
+        if (schedule.startTime && startDateStr) {
+          // 날짜와 시간을 합쳐서 ISO 형식으로 변환
+          startDateTime = `${startDateStr}T${schedule.startTime}:00`;
+        }
+        
+        if (schedule.endTime && endDateStr) {
+          // 날짜와 시간을 합쳐서 ISO 형식으로 변환
+          endDateTime = `${endDateStr}T${schedule.endTime}:00`;
+        }
+        
         // 단일 날짜 스케줄인 경우 end를 설정하지 않음 (FullCalendar가 자동으로 1일로 표시)
         // 다중 날짜 스케줄인 경우: FullCalendar의 end는 exclusive이므로 endDate까지 표시하려면 endDate + 1일이 필요
         // 하지만 현재 endDate + 1일을 하면 하루 더 그려지므로, endDate의 날짜만 사용하고 시간을 23:59:59로 설정
@@ -157,10 +175,34 @@ const CompanyCalendar: React.FC = () => {
         let endDateForCalendar: string | undefined;
         if (startDateStr && endDateStr && startDateStr !== endDateStr) {
           // 시작일과 종료일이 다른 경우
-          // endDate의 날짜에 23:59:59를 설정하여 해당 날짜의 끝까지 표시
-          const endDateObj = new Date(endDateStr);
-          endDateObj.setHours(23, 59, 59, 999);
-          endDateForCalendar = endDateObj.toISOString();
+          // 시간 정보가 있으면 그 시간을 사용, 없으면 23:59:59로 설정
+          if (endDateTime) {
+            endDateForCalendar = endDateTime;
+          } else {
+            const endDateObj = new Date(endDateStr);
+            endDateObj.setHours(23, 59, 59, 999);
+            endDateForCalendar = endDateObj.toISOString();
+          }
+        } else if (endDateTime) {
+          // 단일 날짜지만 시간 정보가 있는 경우
+          endDateForCalendar = endDateTime;
+        }
+
+        const userName = usersMap[schedule.userId]?.name || schedule.userName;
+
+        // 휴가는 보라색으로 표시
+        if (schedule.level === '휴가') {
+          return {
+            id: schedule.id,
+            title: `[${userName}] ${schedule.taskName}`,
+            start: startDate!,
+            end: endDateForCalendar,
+            extendedProps: {
+              schedule,
+            },
+            backgroundColor: '#9c27b0', // 보라색
+            borderColor: '#7b1fa2', // 진한 보라색
+          };
         }
 
         // 상태별 색상
@@ -173,15 +215,19 @@ const CompanyCalendar: React.FC = () => {
 
         const colors = statusColors[schedule.status] || statusColors['대기중'];
 
-        const userName = usersMap[schedule.userId]?.name || schedule.userName;
+        // 미팅인 경우에만 시간 정보를 제목에 표시
+        const timeDisplay = schedule.level === '미팅' && schedule.startTime 
+          ? ` (${schedule.startTime}${schedule.endTime ? `-${schedule.endTime}` : ''})`
+          : '';
 
         return {
           id: schedule.id,
-          title: `[${userName}] ${schedule.taskName}`,
-          start: startDate!,
+          title: `[${userName}] ${schedule.taskName}${timeDisplay}`,
+          start: startDateTime || startDate!,
           // 단일 날짜 스케줄인 경우 end를 설정하지 않음
           // 다중 날짜 스케줄인 경우 endDate까지만 표시 (endDate + 1일이 아닌 endDate의 끝 시간 사용)
-          end: endDateForCalendar,
+          // 시간 정보가 있으면 endDateTime 사용
+          end: endDateForCalendar || (startDateTime && endDateTime ? endDateTime : undefined),
           extendedProps: {
             schedule,
           },
@@ -217,6 +263,39 @@ const CompanyCalendar: React.FC = () => {
     return `${user.name}/${user.username}${user.team ? ` [${user.team}]` : ''}`;
   };
 
+  const handleDownloadCalendar = async () => {
+    if (!calendarRef.current) return;
+    
+    try {
+      setDownloading(true);
+      const canvas = await html2canvas(calendarRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2, // 고해상도를 위해 2배 스케일
+        logging: false,
+        useCORS: true,
+        windowWidth: calendarRef.current.scrollWidth,
+        windowHeight: calendarRef.current.scrollHeight,
+      });
+
+      // 캔버스를 이미지로 변환
+      const imageUrl = canvas.toDataURL('image/jpeg', 0.95);
+      
+      // 다운로드 링크 생성
+      const link = document.createElement('a');
+      const fileName = `전사스케줄_${format(new Date(), 'yyyy-MM-dd')}.jpg`;
+      link.download = fileName;
+      link.href = imageUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error('이미지 다운로드 실패:', error);
+      alert('이미지 다운로드에 실패했습니다.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const handleDateClick = (arg: any) => {
     // 날짜의 빈공간 클릭 시: 날짜만 설정하고 스케줄 ID는 null (전체 스케줄 표시)
     setSelectedDate(arg.date);
@@ -249,8 +328,26 @@ const CompanyCalendar: React.FC = () => {
       <Sidebar />
       <div style={{ marginLeft: '250px', width: 'calc(100% - 250px)', padding: '2rem' }}>
         <div style={{ marginBottom: '2rem' }}>
-          <h1 style={{ marginBottom: '1rem' }}>전사 스케줄 열람</h1>
-          
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h1 style={{ margin: 0 }}>전사 스케줄 열람</h1>
+            <button
+              onClick={handleDownloadCalendar}
+              disabled={downloading}
+              style={{
+                padding: '0.5rem 1rem',
+                backgroundColor: downloading ? '#6c757d' : '#28a745',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: downloading ? 'not-allowed' : 'pointer',
+                fontSize: '0.9rem',
+                fontWeight: '500',
+              }}
+            >
+              {downloading ? '다운로드 중...' : '📥 이미지 다운로드 (JPEG)'}
+            </button>
+          </div>
+
           <div style={{ marginBottom: '1rem' }}>
             <label style={{ marginRight: '0.5rem' }}>사용자 필터:</label>
             <select
@@ -273,7 +370,7 @@ const CompanyCalendar: React.FC = () => {
           </div>
         </div>
 
-        <div style={{ backgroundColor: 'white', padding: '1rem', borderRadius: '8px' }}>
+        <div ref={calendarRef} style={{ backgroundColor: 'white', padding: '1rem', borderRadius: '8px' }}>
           <FullCalendar
             plugins={[dayGridPlugin, interactionPlugin]}
             initialView="dayGridMonth"

@@ -41,6 +41,8 @@ export interface Schedule {
   deadline?: string; // 데드라인 (ISO date string) - 하위 호환성을 위해 유지, startDate/endDate 사용 권장
   startDate?: string; // 시작일 (ISO date string)
   endDate?: string; // 종료일 (ISO date string)
+  startTime?: string; // 시작 시간 (HH:mm 형식, 미팅용)
+  endTime?: string; // 종료 시간 (HH:mm 형식, 미팅용)
   isPublic?: boolean; // 전사 스케줄 노출 여부 (기본값: false)
   note?: string; // 비고
   userId: string; // 사용자 ID (어떤 사용자의 업무인지)
@@ -77,7 +79,26 @@ export interface Vacation {
   date: string; // 사용 일자 (yyyy-MM-dd)
   days: number; // 사용 일수 (기본 1)
   reason?: string; // 사유
+  substituteUserName?: string; // 대직자 이름 (기록 보존을 위해 이름만 저장)
   createdByUid: string; // 입력한 사람 UID
   createdByName: string; // 입력한 사람 이름
   createdAt: any; // 생성일시 (Firebase Timestamp)
+}
+
+// 대체 휴무 신청 타입
+export interface SubstituteHolidayRequest {
+  id: string; // Firestore 문서 ID
+  userId: string; // 신청자 UID
+  userName: string; // 신청자 이름
+  date: string; // 대체 휴무일 (yyyy-MM-dd)
+  reason?: string; // 신청 사유 (선택)
+  substituteUserName?: string; // 대직자 이름 (기록 보존을 위해 이름만 저장)
+  status: 'pending' | 'approved' | 'rejected'; // 상태: 대기중, 승인, 반려
+  rejectedReason?: string; // 반려 사유
+  createdByUid: string; // 신청자 UID
+  createdByName: string; // 신청자 이름
+  createdAt: any; // 신청일시 (Firebase Timestamp)
+  reviewedByUid?: string; // 승인/반려한 관리자 UID
+  reviewedByName?: string; // 승인/반려한 관리자 이름
+  reviewedAt?: any; // 승인/반려 일시 (Firebase Timestamp)
 }

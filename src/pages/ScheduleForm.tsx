@@ -5,6 +5,9 @@ import { db } from '../firebase/config';
 import { Schedule, ScheduleHistory, LEVEL_DESCRIPTIONS } from '../types';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
+import DatePicker from 'react-datepicker';
+import { ko } from 'date-fns/locale';
+import 'react-datepicker/dist/react-datepicker.css';
 
 const ScheduleForm: React.FC = () => {
   const { id } = useParams<{ id?: string }>();
@@ -20,6 +23,8 @@ const ScheduleForm: React.FC = () => {
     status: '대기중' as Schedule['status'],
     startDate: '',
     endDate: '',
+    startTime: '',
+    endTime: '',
     isPublic: false,
     note: '',
   });
@@ -99,6 +104,8 @@ const ScheduleForm: React.FC = () => {
           status: data.status,
           startDate,
           endDate,
+          startTime: data.startTime || '',
+          endTime: data.endTime || '',
           isPublic: data.isPublic ?? false,
           note: data.note || '',
         });
@@ -120,6 +127,12 @@ const ScheduleForm: React.FC = () => {
 
     if (!formData.taskId || !formData.taskName || !formData.startDate || !formData.endDate) {
       setError('필수 항목을 모두 입력해주세요.');
+      return;
+    }
+
+    // 미팅인 경우 시작일과 종료일이 같아야 함
+    if (formData.level === '미팅' && formData.startDate !== formData.endDate) {
+      setError('미팅은 당일에 진행되므로 시작일과 종료일이 같아야 합니다.');
       return;
     }
 
@@ -257,6 +270,8 @@ const ScheduleForm: React.FC = () => {
           startDate: new Date(formData.startDate).toISOString(),
           endDate: new Date(formData.endDate).toISOString(),
           deadline: new Date(formData.endDate).toISOString(), // 하위 호환성을 위해 endDate와 동일하게 설정
+          startTime: formData.startTime || undefined,
+          endTime: formData.endTime || undefined,
           isPublic: formData.isPublic,
           note: formData.note || '',
           userId: userData.uid,
@@ -323,7 +338,15 @@ const ScheduleForm: React.FC = () => {
           <label style={styles.label}>레벨 *</label>
           <select
             value={formData.level}
-            onChange={(e) => setFormData({ ...formData, level: e.target.value as Schedule['level'] })}
+            onChange={(e) => {
+              const newLevel = e.target.value as Schedule['level'];
+              // 미팅으로 변경하면 종료일을 시작일과 동일하게 설정
+              if (newLevel === '미팅' && formData.startDate) {
+                setFormData({ ...formData, level: newLevel, endDate: formData.startDate });
+              } else {
+                setFormData({ ...formData, level: newLevel });
+              }
+            }}
             required
             style={styles.select}
           >
@@ -371,30 +394,112 @@ const ScheduleForm: React.FC = () => {
           </select>
         </div>
 
-        <div style={styles.formGroup}>
-          <label style={styles.label}>시작일 *</label>
-          <input
-            type="date"
-            value={formData.startDate}
-            onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-            required
-            style={styles.input}
-          />
-        </div>
+        {formData.level === '미팅' ? (
+          <div style={styles.formGroup}>
+            <label style={styles.label}>날짜 *</label>
+            <DatePicker
+              selected={formData.startDate ? new Date(formData.startDate) : null}
+              onChange={(date: Date | null) => {
+                if (date) {
+                  const dateStr = date.toISOString().split('T')[0];
+                  setFormData({ ...formData, startDate: dateStr, endDate: dateStr });
+                }
+              }}
+              dateFormat="yyyy-MM-dd"
+              locale={ko}
+              placeholderText="날짜를 선택하세요"
+              showYearDropdown
+              showMonthDropdown
+              yearDropdownItemNumber={100}
+              scrollableYearDropdown
+              required
+              className="date-picker-input"
+            />
+            <small style={styles.helpText}>
+              미팅은 당일에 진행됩니다
+            </small>
+          </div>
+        ) : (
+          <>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>시작일 *</label>
+              <DatePicker
+                selected={formData.startDate ? new Date(formData.startDate) : null}
+                onChange={(date: Date | null) => {
+                  if (date) {
+                    const dateStr = date.toISOString().split('T')[0];
+                    setFormData({ ...formData, startDate: dateStr });
+                  }
+                }}
+                dateFormat="yyyy-MM-dd"
+                locale={ko}
+                placeholderText="시작일을 선택하세요"
+                showYearDropdown
+                showMonthDropdown
+                yearDropdownItemNumber={100}
+                scrollableYearDropdown
+                required
+                className="date-picker-input"
+              />
+            </div>
 
-        <div style={styles.formGroup}>
-          <label style={styles.label}>종료일 *</label>
-          <input
-            type="date"
-            value={formData.endDate}
-            onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-            required
-            style={styles.input}
-          />
-          <small style={styles.helpText}>
-            하루만인 경우 시작일과 종료일을 동일하게 설정하세요
-          </small>
-        </div>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>종료일 *</label>
+              <DatePicker
+                selected={formData.endDate ? new Date(formData.endDate) : null}
+                onChange={(date: Date | null) => {
+                  if (date) {
+                    const dateStr = date.toISOString().split('T')[0];
+                    setFormData({ ...formData, endDate: dateStr });
+                  }
+                }}
+                dateFormat="yyyy-MM-dd"
+                locale={ko}
+                placeholderText="종료일을 선택하세요"
+                minDate={formData.startDate ? new Date(formData.startDate) : undefined}
+                showYearDropdown
+                showMonthDropdown
+                yearDropdownItemNumber={100}
+                scrollableYearDropdown
+                required
+                className="date-picker-input"
+              />
+              <small style={styles.helpText}>
+                하루만인 경우 시작일과 종료일을 동일하게 설정하세요
+              </small>
+            </div>
+          </>
+        )}
+
+        {formData.level === '미팅' && (
+          <>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>시작 시간</label>
+              <input
+                type="time"
+                value={formData.startTime}
+                onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+                style={styles.input}
+              />
+              <small style={styles.helpText}>
+                미팅 시작 시간을 입력하세요 (예: 14:30)
+              </small>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>종료 시간</label>
+              <input
+                type="time"
+                value={formData.endTime}
+                onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+                style={styles.input}
+              />
+              <small style={styles.helpText}>
+                미팅 종료 시간을 입력하세요 (예: 16:00)
+              </small>
+            </div>
+          </>
+        )}
 
         <div style={styles.formGroup}>
           <label style={styles.checkboxLabel}>

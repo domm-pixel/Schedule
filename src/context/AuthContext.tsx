@@ -18,6 +18,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name: string, username: string, team: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUserData: () => Promise<void>;
   isAdmin: boolean;
 }
 
@@ -40,25 +41,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [userData, setUserData] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const fetchUserData = async (user: FirebaseUser) => {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        setUserData(userDoc.data() as User);
+      } else {
+        // 사용자 데이터가 없으면 null로 설정
+        // (회원가입 시 Firestore 저장이 실패한 경우 - UserDataForm에서 처리)
+        console.warn('Firestore에 사용자 데이터가 없습니다.');
+        setUserData(null);
+      }
+    } catch (error) {
+      console.error('사용자 데이터 가져오기 실패:', error);
+      setUserData(null);
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
         // Firestore에서 사용자 데이터 가져오기
-        try {
-          const userDoc = await getDoc(doc(db, 'users', user.uid));
-          if (userDoc.exists()) {
-            setUserData(userDoc.data() as User);
-          } else {
-            // 사용자 데이터가 없으면 null로 설정
-            // (회원가입 시 Firestore 저장이 실패한 경우 - UserDataForm에서 처리)
-            console.warn('Firestore에 사용자 데이터가 없습니다.');
-            setUserData(null);
-          }
-        } catch (error) {
-          console.error('사용자 데이터 가져오기 실패:', error);
-          setUserData(null);
-        }
+        await fetchUserData(user);
       } else {
         setUserData(null);
       }
@@ -124,6 +129,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     await signOut(auth);
   };
 
+  const refreshUserData = async () => {
+    if (currentUser) {
+      await fetchUserData(currentUser);
+    }
+  };
+
   const value: AuthContextType = {
     currentUser,
     userData,
@@ -131,6 +142,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     login,
     signup,
     logout,
+    refreshUserData,
     isAdmin: userData?.role === 'admin',
   };
 

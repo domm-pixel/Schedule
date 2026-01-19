@@ -6,6 +6,9 @@ import { User, Vacation } from '../types';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 import { addMonths, addYears, isAfter, isBefore, parseISO, differenceInYears } from 'date-fns';
+import DatePicker from 'react-datepicker';
+import { ko } from 'date-fns/locale';
+import 'react-datepicker/dist/react-datepicker.css';
 
 const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -291,11 +294,23 @@ const UserManagement: React.FC = () => {
                 <td style={styles.td}>{user.username}</td>
                 <td style={styles.td}>{user.team}</td>
               <td style={styles.td}>
-                <input
-                  type="date"
-                  value={user.hireDate ? new Date(user.hireDate).toISOString().slice(0, 10) : ''}
-                  onChange={(e) => handleHireDateChange(user.id, e.target.value)}
-                  style={styles.input}
+                <DatePicker
+                  selected={user.hireDate ? new Date(user.hireDate) : null}
+                  onChange={(date: Date | null) => {
+                    if (date) {
+                      handleHireDateChange(user.id, date.toISOString().split('T')[0]);
+                    } else {
+                      handleHireDateChange(user.id, '');
+                    }
+                  }}
+                  dateFormat="yyyy-MM-dd"
+                  locale={ko}
+                  placeholderText="입사일을 선택하세요"
+                  showYearDropdown
+                  showMonthDropdown
+                  yearDropdownItemNumber={100}
+                  scrollableYearDropdown
+                  className="date-picker-input"
                 />
               </td>
               <td style={styles.td}>

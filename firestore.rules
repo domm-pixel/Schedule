@@ -44,6 +44,8 @@ service cloud.firestore {
           request.resource.data.description == resource.data.description &&
           request.resource.data.startDate == resource.data.startDate &&
           request.resource.data.endDate == resource.data.endDate &&
+          request.resource.data.startTime == resource.data.startTime &&
+          request.resource.data.endTime == resource.data.endTime &&
           request.resource.data.isPublic == resource.data.isPublic &&
           request.resource.data.userName == resource.data.userName &&
           request.resource.data.createdAt == resource.data.createdAt &&
@@ -70,6 +72,23 @@ service cloud.firestore {
       // 수정/삭제: 본인은 자신의 휴가만, 관리자는 전체 가능
       allow update, delete: if request.auth != null &&
         (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // 대체 휴무 신청 컬렉션
+    match /substituteHolidayRequests/{requestId} {
+      // 읽기: 본인은 자신의 신청만, 관리자는 전체 조회 가능
+      allow read: if request.auth != null &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+
+      // 생성: 본인은 자신의 신청만 생성 가능
+      allow create: if request.auth != null &&
+        request.resource.data.userId == request.auth.uid;
+
+      // 수정: 관리자만 승인/반려 가능
+      allow update: if request.auth != null && isAdmin();
+
+      // 삭제: 관리자만 가능
+      allow delete: if request.auth != null && isAdmin();
     }
   }
 }
