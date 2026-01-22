@@ -297,13 +297,19 @@ const MyVacation: React.FC = () => {
 
     // 1년 미만: 월차 계산 (최대 11개, 1년 시점에 지급)
     if (yearsSinceHire < 1) {
-      // 입사 후 경과 개월 수 계산
+      // 월차는 입사 후 한 달이 지나야 지급됨 (예: 1월 22일 입사 → 2월 22일부터 첫 월차)
+      // 각 월차는 입사일로부터 N개월 후에 지급됨 (N = 1, 2, 3, ..., 11)
       let monthsElapsed = 0;
-      let base = hireDate;
       
-      while (!isAfter(base, today) && monthsElapsed < 11) {
-        monthsElapsed += 1;
-        base = addMonths(hireDate, monthsElapsed);
+      // 첫 번째 월차 지급일부터 시작 (입사일 + 1개월)
+      for (let month = 1; month <= 11; month++) {
+        const accrualDate = addMonths(hireDate, month);
+        // 해당 월차 지급일이 오늘 이전이거나 오늘이면 지급됨
+        if (isBefore(accrualDate, today) || accrualDate.getTime() === today.getTime()) {
+          monthsElapsed = month;
+        } else {
+          break; // 아직 지급되지 않은 월차를 만나면 중단
+        }
       }
       
       // 1년이 되는 시점에 월차 11개 지급
@@ -405,46 +411,55 @@ const MyVacation: React.FC = () => {
 
           <div style={styles.card}>
             <h2 style={styles.cardTitle}>휴가 사용 등록</h2>
-            <div style={styles.formRow}>
-              <DatePicker
-                selected={newDate ? new Date(newDate) : null}
-                onChange={(date: Date | null) => {
-                  if (date) {
-                    setNewDate(date.toISOString().split('T')[0]);
-                  } else {
-                    setNewDate('');
-                  }
-                }}
-                dateFormat="yyyy-MM-dd"
-                locale={ko}
-                placeholderText="날짜를 선택하세요"
-                minDate={new Date()}
-                showYearDropdown
-                showMonthDropdown
-                yearDropdownItemNumber={100}
-                scrollableYearDropdown
-                className="date-picker-input"
-              />
-              <select
-                value={newSubstituteUserName}
-                onChange={(e) => setNewSubstituteUserName(e.target.value)}
-                style={styles.input}
-              >
-                {users.map((user) => (
-                  <option key={user.uid} value={user.name}>
-                    {user.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="text"
-                placeholder="사유 (선택)"
-                value={newReason}
-                onChange={(e) => setNewReason(e.target.value)}
-                style={styles.input}
-              />
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>날짜 *</label>
+                <DatePicker
+                  selected={newDate ? new Date(newDate) : null}
+                  onChange={(date: Date | null) => {
+                    if (date) {
+                      setNewDate(date.toISOString().split('T')[0]);
+                    } else {
+                      setNewDate('');
+                    }
+                  }}
+                  dateFormat="yyyy-MM-dd"
+                  locale={ko}
+                  placeholderText="날짜를 선택하세요"
+                  minDate={new Date()}
+                  showYearDropdown
+                  showMonthDropdown
+                  yearDropdownItemNumber={100}
+                  scrollableYearDropdown
+                  className="date-picker-input"
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>대직자 *</label>
+                <select
+                  value={newSubstituteUserName}
+                  onChange={(e) => setNewSubstituteUserName(e.target.value)}
+                  style={{ height: '38px', padding: '0.5rem 0.75rem', border: '1px solid #ddd', borderRadius: '4px', fontSize: '0.9rem', minWidth: '120px' }}
+                >
+                  {users.map((user) => (
+                    <option key={user.uid} value={user.name}>
+                      {user.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>사유</label>
+                <input
+                  type="text"
+                  placeholder="사유 (선택)"
+                  value={newReason}
+                  onChange={(e) => setNewReason(e.target.value)}
+                  style={{ height: '38px', padding: '0.5rem 0.75rem', border: '1px solid #ddd', borderRadius: '4px', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box' }}
+                />
+              </div>
               <button
-                style={styles.addButton}
+                style={{ ...styles.addButton, height: '38px', padding: '0.5rem 1rem' }}
                 onClick={handleAddVacation}
                 disabled={!newDate}
               >
@@ -701,6 +716,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     border: '1px solid #ddd',
     borderRadius: '4px',
     fontSize: '0.9rem',
+    height: '38px',
+    boxSizing: 'border-box',
   },
   addButton: {
     padding: '0.5rem 1rem',

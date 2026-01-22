@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { collection, addDoc, getDocs, query, where, orderBy, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { addMonths, addYears, isAfter, isBefore, parseISO, differenceInYears, isPast, startOfDay } from 'date-fns';
+import { addMonths, addYears, isAfter, isBefore, parseISO, differenceInYears, isPast, startOfDay, format } from 'date-fns';
 import { db } from '../firebase/config';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
@@ -10,6 +10,8 @@ import Toast from '../components/Toast';
 import DatePicker from 'react-datepicker';
 import { ko } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 
 interface AccrualStats {
   accrued: number;
@@ -38,6 +40,7 @@ const AdminVacation: React.FC = () => {
   const [editRequestSubstituteUserName, setEditRequestSubstituteUserName] = useState('');
   const [rejectReason, setRejectReason] = useState('');
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const [viewingSubstituteHoliday, setViewingSubstituteHoliday] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const fetchUsers = useCallback(async () => {
@@ -335,6 +338,139 @@ const AdminVacation: React.FC = () => {
     }
   };
 
+  const handleAddSubstituteHoliday = async () => {
+    if (!selectedUser || !userData) return;
+    
+    const dateStr = prompt('대체 휴무일을 입력하세요 (yyyy-MM-dd 형식):');
+    if (!dateStr) return;
+
+    try {
+      const currentHolidays = selectedUser.substituteHolidays || [];
+      if (currentHolidays.includes(dateStr)) {
+        setToast({ message: '이미 등록된 대체 휴무일입니다.', type: 'error' });
+        return;
+      }
+
+      await updateDoc(doc(db, 'users', selectedUser.id), {
+        substituteHolidays: [...currentHolidays, dateStr],
+        updatedAt: new Date().toISOString(),
+      });
+      fetchUsers();
+      setToast({ message: '대체 휴무일이 추가되었습니다.', type: 'success' });
+    } catch (error) {
+      console.error('대체 휴무일 추가 실패:', error);
+      setToast({ message: '대체 휴무일 추가에 실패했습니다.', type: 'error' });
+    }
+  };
+
+  const handleRemoveSubstituteHoliday = async (dateStr: string) => {
+    if (!selectedUser || !userData) return;
+    if (!window.confirm('이 대체 휴무일을 삭제하시겠습니까?')) return;
+
+    try {
+      const currentHolidays = selectedUser.substituteHolidays || [];
+      await updateDoc(doc(db, 'users', selectedUser.id), {
+        substituteHolidays: currentHolidays.filter((d) => d !== dateStr),
+        updatedAt: new Date().toISOString(),
+      });
+      fetchUsers();
+      setToast({ message: '대체 휴무일이 삭제되었습니다.', type: 'success' });
+    } catch (error) {
+      console.error('대체 휴무일 삭제 실패:', error);
+      setToast({ message: '대체 휴무일 삭제에 실패했습니다.', type: 'error' });
+    }
+  };
+
+  // 선택된 사용자의 휴가 내역을 엑셀로 다운로드
+  const handleDownloadExcel = () => {
+    if (!selectedUser || vacations.length === 0) {
+      setToast({ message: '다운로드할 휴가 내역이 없습니다.', type: 'error' });
+      return;
+    }
+
+    const excelData = vacations.map((v) => ({
+      '사용일': format(new Date(v.date), 'yyyy-MM-dd'),
+      '일수': v.days,
+      '대직자': v.substituteUserName || selectedUser.name || '-',
+      '사유': v.reason || '-',
+      '입력자': v.createdByName,
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, '휴가 사용 내역');
+
+    // 컬럼 너비 설정
+    worksheet['!cols'] = [
+      { wch: 12 }, // 사용일
+      { wch: 6 },  // 일수
+      { wch: 10 }, // 대직자
+      { wch: 20 }, // 사유
+      { wch: 10 }, // 입력자
+    ];
+
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const fileName = `${selectedUser.name}_휴가사용내역_${format(new Date(), 'yyyyMMdd')}.xlsx`;
+    saveAs(blob, fileName);
+    setToast({ message: '엑셀 파일이 다운로드되었습니다.', type: 'success' });
+  };
+
+  // 전체 사용자의 휴가 내역을 엑셀로 다운로드
+  const handleDownloadAllExcel = async () => {
+    try {
+      const allVacationsQuery = query(
+        collection(db, 'vacations'),
+        orderBy('date', 'desc')
+      );
+      const snapshot = await getDocs(allVacationsQuery);
+      const allVacations = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as Vacation[];
+
+      if (allVacations.length === 0) {
+        setToast({ message: '다운로드할 휴가 내역이 없습니다.', type: 'error' });
+        return;
+      }
+
+      // 사용자 이름 매핑
+      const userMap = new Map(users.map(u => [u.uid, u.name]));
+
+      const excelData = allVacations.map((v) => ({
+        '사원명': userMap.get(v.userId) || v.userId,
+        '사용일': format(new Date(v.date), 'yyyy-MM-dd'),
+        '일수': v.days,
+        '대직자': v.substituteUserName || '-',
+        '사유': v.reason || '-',
+        '입력자': v.createdByName,
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(excelData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, '전체 휴가 사용 내역');
+
+      // 컬럼 너비 설정
+      worksheet['!cols'] = [
+        { wch: 10 }, // 사원명
+        { wch: 12 }, // 사용일
+        { wch: 6 },  // 일수
+        { wch: 10 }, // 대직자
+        { wch: 20 }, // 사유
+        { wch: 10 }, // 입력자
+      ];
+
+      const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const fileName = `전체_휴가사용내역_${format(new Date(), 'yyyyMMdd')}.xlsx`;
+      saveAs(blob, fileName);
+      setToast({ message: '전체 휴가 내역이 다운로드되었습니다.', type: 'success' });
+    } catch (error) {
+      console.error('전체 휴가 내역 다운로드 실패:', error);
+      setToast({ message: '다운로드에 실패했습니다.', type: 'error' });
+    }
+  };
+
   const handleUpdateRequestSubstituteUser = async (requestId: string, substituteUserName: string) => {
     if (!userData) return;
     try {
@@ -385,13 +521,19 @@ const AdminVacation: React.FC = () => {
 
     // 1년 미만: 월차 계산 (최대 11개, 1년 시점에 지급)
     if (yearsSinceHire < 1) {
-      // 입사 후 경과 개월 수 계산
+      // 월차는 입사 후 한 달이 지나야 지급됨 (예: 1월 22일 입사 → 2월 22일부터 첫 월차)
+      // 각 월차는 입사일로부터 N개월 후에 지급됨 (N = 1, 2, 3, ..., 11)
       let monthsElapsed = 0;
-      let base = hireDate;
       
-      while (!isAfter(base, today) && monthsElapsed < 11) {
-        monthsElapsed += 1;
-        base = addMonths(hireDate, monthsElapsed);
+      // 첫 번째 월차 지급일부터 시작 (입사일 + 1개월)
+      for (let month = 1; month <= 11; month++) {
+        const accrualDate = addMonths(hireDate, month);
+        // 해당 월차 지급일이 오늘 이전이거나 오늘이면 지급됨
+        if (isBefore(accrualDate, today) || accrualDate.getTime() === today.getTime()) {
+          monthsElapsed = month;
+        } else {
+          break; // 아직 지급되지 않은 월차를 만나면 중단
+        }
       }
       
       // 1년이 되는 시점에 월차 11개 지급
@@ -523,53 +665,78 @@ const AdminVacation: React.FC = () => {
                     <div style={styles.statValue}>{stats.remaining}일</div>
                   </div>
                 </div>
-                <div style={styles.helperText}>
-                  * 규칙: 입사 후 1년 미만은 매달 1일씩 발생, 각 일수는 발생일로부터 1년이 지나면 자동 소멸합니다.
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem' }}>
+                  <div style={styles.helperText}>
+                    * 규칙: 입사 후 1년 미만은 매달 1일씩 발생, 각 일수는 발생일로부터 1년이 지나면 자동 소멸합니다.
+                  </div>
+                  <button
+                    onClick={() => setViewingSubstituteHoliday(true)}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      backgroundColor: '#17a2b8',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    대체 휴무 관리
+                  </button>
                 </div>
               </div>
 
               <div style={styles.card}>
                 <h2 style={styles.cardTitle}>휴가 사용 등록</h2>
-                <div style={styles.formRow}>
-                  <DatePicker
-                    selected={newDate ? new Date(newDate) : null}
-                    onChange={(date: Date | null) => {
-                      if (date) {
-                        setNewDate(date.toISOString().split('T')[0]);
-                      } else {
-                        setNewDate('');
-                      }
-                    }}
-                    dateFormat="yyyy-MM-dd"
-                    locale={ko}
-                    placeholderText="날짜를 선택하세요"
-                    minDate={new Date()}
-                    showYearDropdown
-                    showMonthDropdown
-                    yearDropdownItemNumber={100}
-                    scrollableYearDropdown
-                    className="date-picker-input"
-                  />
-                  <select
-                    value={newSubstituteUserName}
-                    onChange={(e) => setNewSubstituteUserName(e.target.value)}
-                    style={styles.input}
-                  >
-                    {users.map((user) => (
-                      <option key={user.uid} value={user.name}>
-                        {user.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    placeholder="사유 (선택)"
-                    value={newReason}
-                    onChange={(e) => setNewReason(e.target.value)}
-                    style={styles.input}
-                  />
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>날짜 *</label>
+                    <DatePicker
+                      selected={newDate ? new Date(newDate) : null}
+                      onChange={(date: Date | null) => {
+                        if (date) {
+                          setNewDate(date.toISOString().split('T')[0]);
+                        } else {
+                          setNewDate('');
+                        }
+                      }}
+                      dateFormat="yyyy-MM-dd"
+                      locale={ko}
+                      placeholderText="날짜를 선택하세요"
+                      minDate={new Date()}
+                      showYearDropdown
+                      showMonthDropdown
+                      yearDropdownItemNumber={100}
+                      scrollableYearDropdown
+                      className="date-picker-input"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>대직자 *</label>
+                    <select
+                      value={newSubstituteUserName}
+                      onChange={(e) => setNewSubstituteUserName(e.target.value)}
+                      style={{ height: '38px', padding: '0.5rem 0.75rem', border: '1px solid #ddd', borderRadius: '4px', fontSize: '0.9rem', minWidth: '120px' }}
+                    >
+                      {users.map((user) => (
+                        <option key={user.uid} value={user.name}>
+                          {user.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>사유</label>
+                    <input
+                      type="text"
+                      placeholder="사유 (선택)"
+                      value={newReason}
+                      onChange={(e) => setNewReason(e.target.value)}
+                      style={{ height: '38px', padding: '0.5rem 0.75rem', border: '1px solid #ddd', borderRadius: '4px', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
                   <button
-                    style={styles.addButton}
+                    style={{ ...styles.addButton, height: '38px', padding: '0.5rem 1rem' }}
                     onClick={handleAddVacation}
                     disabled={!newDate}
                   >
@@ -579,7 +746,48 @@ const AdminVacation: React.FC = () => {
               </div>
 
               <div style={styles.card}>
-                <h2 style={styles.cardTitle}>휴가 사용 내역</h2>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>휴가 사용 내역</h2>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                      style={{
+                        padding: '0.5rem 1rem',
+                        backgroundColor: '#28a745',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.25rem',
+                      }}
+                      onClick={handleDownloadExcel}
+                      disabled={vacations.length === 0}
+                      title="선택된 사용자의 휴가 내역 다운로드"
+                    >
+                      📥 엑셀 다운로드
+                    </button>
+                    <button
+                      style={{
+                        padding: '0.5rem 1rem',
+                        backgroundColor: '#17a2b8',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.25rem',
+                      }}
+                      onClick={handleDownloadAllExcel}
+                      title="전체 사용자의 휴가 내역 다운로드"
+                    >
+                      📥 전체 다운로드
+                    </button>
+                  </div>
+                </div>
                 {loadingVacations ? (
                   <div style={styles.loading}>로딩 중...</div>
                 ) : vacations.length === 0 ? (
@@ -844,6 +1052,76 @@ const AdminVacation: React.FC = () => {
           )}
         </div>
       </div>
+      
+      {/* 대체 휴무일 관리 모달 */}
+      {viewingSubstituteHoliday && selectedUser && (
+        <div style={styles.modalOverlay} onClick={() => setViewingSubstituteHoliday(false)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>
+                {selectedUser.name}님의 대체 휴무일 관리
+              </h3>
+              <button
+                onClick={() => setViewingSubstituteHoliday(false)}
+                style={styles.modalCloseButton}
+              >
+                ×
+              </button>
+            </div>
+            <div style={styles.modalBody}>
+              <div style={{ marginBottom: '1rem' }}>
+                <button
+                  onClick={handleAddSubstituteHoliday}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    backgroundColor: '#17a2b8',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                  }}
+                >
+                  + 대체 휴무일 추가
+                </button>
+              </div>
+              {(() => {
+                const holidays = selectedUser.substituteHolidays || [];
+                if (holidays.length === 0) {
+                  return <p style={styles.noData}>대체 휴무일이 없습니다.</p>;
+                }
+                return (
+                  <div style={styles.substituteList}>
+                    {holidays.map((dateStr) => (
+                      <div key={dateStr} style={styles.substituteItem}>
+                        <span>{new Date(dateStr).toLocaleDateString('ko-KR', { 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric',
+                          weekday: 'short'
+                        })}</span>
+                        <button
+                          onClick={() => {
+                            handleRemoveSubstituteHoliday(dateStr);
+                            if (holidays.length === 1) {
+                              setViewingSubstituteHoliday(false);
+                            }
+                          }}
+                          style={styles.removeButton}
+                          title="삭제"
+                        >
+                          삭제
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+      
       {toast && (
         <Toast
           message={toast.message}
@@ -921,6 +1199,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     border: '1px solid #ddd',
     borderRadius: '4px',
     fontSize: '0.9rem',
+    height: '38px',
+    boxSizing: 'border-box',
   },
   addButton: {
     padding: '0.5rem 1rem',
@@ -1092,6 +1372,82 @@ const styles: { [key: string]: React.CSSProperties } = {
     borderRadius: '4px',
     cursor: 'pointer',
     fontSize: '0.9rem',
+  },
+  modalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: '8px',
+    padding: '0',
+    maxWidth: '500px',
+    width: '90%',
+    maxHeight: '80vh',
+    display: 'flex',
+    flexDirection: 'column',
+    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+  },
+  modalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '1.5rem',
+    borderBottom: '1px solid #dee2e6',
+  },
+  modalTitle: {
+    margin: 0,
+    fontSize: '1.25rem',
+    color: '#333',
+  },
+  modalCloseButton: {
+    padding: '0.25rem 0.75rem',
+    backgroundColor: 'transparent',
+    color: '#666',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '1.5rem',
+    lineHeight: 1,
+    fontWeight: 'bold',
+  },
+  modalBody: {
+    padding: '1.5rem',
+    overflowY: 'auto',
+  },
+  substituteList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
+    maxHeight: '400px',
+    overflowY: 'auto',
+  },
+  substituteItem: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0.75rem 1rem',
+    backgroundColor: '#e7f3ff',
+    borderRadius: '4px',
+    fontSize: '0.9rem',
+  },
+  removeButton: {
+    padding: '0.25rem 0.5rem',
+    backgroundColor: 'transparent',
+    color: '#dc3545',
+    border: '1px solid #dc3545',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    marginLeft: '1rem',
   },
 };
 

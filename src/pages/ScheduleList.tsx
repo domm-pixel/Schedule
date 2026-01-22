@@ -8,20 +8,22 @@ import Sidebar from '../components/Sidebar';
 import LevelTooltip from '../components/LevelTooltip';
 
 const ScheduleList: React.FC = () => {
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [allSchedules, setAllSchedules] = useState<Schedule[]>([]); // 전체 데이터
+  const [schedules, setSchedules] = useState<Schedule[]>([]); // 필터링된 데이터
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<'전체' | '대기중' | '진행중' | '완료' | '연기'>('전체');
+  const [searchInput, setSearchInput] = useState(''); // 입력용
+  const [searchTerm, setSearchTerm] = useState(''); // 실제 검색용
   const { userData } = useAuth();
   const history = useHistory();
 
+  // Firebase에서 데이터 로드 (초기 로딩 시에만)
   const fetchSchedules = useCallback(async () => {
     try {
       setLoading(true);
       
-      // 인덱스 문제를 피하기 위해 모든 스케줄을 가져온 후 클라이언트에서 필터링 및 정렬
       let q = query(collection(db, 'schedules'));
       
-      // 현재 사용자의 스케줄만 조회
       if (userData) {
         q = query(
           collection(db, 'schedules'),
@@ -42,25 +44,44 @@ const ScheduleList: React.FC = () => {
       nonVacationSchedules.sort((a, b) => {
         const dateA = a.createdAt ? (a.createdAt as any).toMillis?.() || new Date(a.createdAt).getTime() : 0;
         const dateB = b.createdAt ? (b.createdAt as any).toMillis?.() || new Date(b.createdAt).getTime() : 0;
-        return dateB - dateA; // 내림차순
+        return dateB - dateA;
       });
 
-      // 상태 필터링
-      const filtered = filterStatus === '전체'
-        ? nonVacationSchedules
-        : nonVacationSchedules.filter(s => s.status === filterStatus);
-
-      setSchedules(filtered);
+      setAllSchedules(nonVacationSchedules);
     } catch (error) {
       console.error('스케줄 목록 가져오기 실패:', error);
     } finally {
       setLoading(false);
     }
-  }, [filterStatus, userData]);
+  }, [userData]);
 
+  // 초기 데이터 로드
   useEffect(() => {
     fetchSchedules();
   }, [fetchSchedules]);
+
+  // 클라이언트 사이드 필터링 (검색/상태 필터 변경 시)
+  useEffect(() => {
+    let filtered = allSchedules;
+
+    // 상태 필터링
+    if (filterStatus !== '전체') {
+      filtered = filtered.filter(s => s.status === filterStatus);
+    }
+
+    // 검색어 필터링
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase().trim();
+      filtered = filtered.filter(s => 
+        s.taskName.toLowerCase().includes(term) ||
+        s.taskId.toLowerCase().includes(term) ||
+        s.description?.toLowerCase().includes(term) ||
+        s.level.toLowerCase().includes(term)
+      );
+    }
+
+    setSchedules(filtered);
+  }, [allSchedules, filterStatus, searchTerm]);
 
   const handleDelete = async (scheduleId: string) => {
     if (!window.confirm('정말 이 업무를 삭제하시겠습니까?')) {
@@ -97,6 +118,41 @@ const ScheduleList: React.FC = () => {
             >
               + 새 업무 등록
             </button>
+          </div>
+
+          {/* 검색 */}
+          <div style={styles.searchContainer}>
+            <input
+              type="text"
+              placeholder="🔍 업무명, 업무ID, 내용, 레벨 검색..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setSearchTerm(searchInput);
+                }
+              }}
+              style={styles.searchInput}
+            />
+            <button
+              onClick={() => setSearchTerm(searchInput)}
+              style={styles.searchButton}
+              title="검색"
+            >
+              검색
+            </button>
+            {searchInput && (
+              <button
+                onClick={() => {
+                  setSearchInput('');
+                  setSearchTerm('');
+                }}
+                style={styles.clearButton}
+                title="검색어 지우기"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
           <div style={styles.filters}>
@@ -246,6 +302,41 @@ const styles: { [key: string]: React.CSSProperties } = {
     cursor: 'pointer',
     fontSize: '1rem',
     fontWeight: '500',
+  },
+  searchContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    marginBottom: '1rem',
+  },
+  searchInput: {
+    flex: 1,
+    padding: '0.75rem 1rem',
+    border: '1px solid #ddd',
+    borderRadius: '8px 0 0 8px',
+    fontSize: '0.95rem',
+    boxSizing: 'border-box',
+    transition: 'border-color 0.2s',
+  },
+  searchButton: {
+    padding: '0.75rem 1.25rem',
+    backgroundColor: '#007bff',
+    color: 'white',
+    border: '1px solid #007bff',
+    borderRadius: '0 8px 8px 0',
+    cursor: 'pointer',
+    fontSize: '0.95rem',
+    fontWeight: '500',
+    transition: 'background-color 0.2s',
+  },
+  clearButton: {
+    marginLeft: '0.5rem',
+    padding: '0.75rem 1rem',
+    background: '#f0f0f0',
+    border: '1px solid #ddd',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    color: '#666',
+    fontSize: '0.95rem',
   },
   filters: {
     display: 'flex',

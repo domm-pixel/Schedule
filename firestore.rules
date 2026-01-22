@@ -90,5 +90,23 @@ service cloud.firestore {
       // 삭제: 관리자만 가능
       allow delete: if request.auth != null && isAdmin();
     }
+
+    // 게시판 컬렉션
+    match /posts/{postId} {
+      // 읽기: 인증된 모든 사용자
+      allow read: if request.auth != null;
+
+      // 생성: 인증된 모든 사용자
+      allow create: if request.auth != null &&
+        request.resource.data.authorUid == request.auth.uid;
+
+      // 수정: 작성자만 가능
+      allow update: if request.auth != null &&
+        resource.data.authorUid == request.auth.uid;
+
+      // 삭제: 관리자는 모든 글 삭제 가능, 일반 유저는 본인 글만 삭제 가능
+      allow delete: if request.auth != null &&
+        (resource.data.authorUid == request.auth.uid || isAdmin());
+    }
   }
 }

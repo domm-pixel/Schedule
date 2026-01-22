@@ -28,6 +28,11 @@ const Sidebar: React.FC = () => {
       path: '/calendar',
       icon: '🗓️',
     },
+    {
+      title: '게시판',
+      path: '/board',
+      icon: '📝',
+    },
   ];
 
   const handleLogout = async () => {
@@ -52,7 +57,14 @@ const Sidebar: React.FC = () => {
   return (
     <div style={styles.sidebar}>
       <div style={styles.header}>
-        <h2 style={styles.title}>스케줄 관리</h2>
+        <div 
+          style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem', cursor: 'pointer' }}
+          onClick={() => history.push('/')}
+          title="대시보드로 이동"
+        >
+          <img src="/logo192.png" alt="돌돌" style={{ width: '45px', height: 'auto' }} />
+          <h2 style={{ ...styles.title, marginBottom: 0 }}>돌돌 스퀘어</h2>
+        </div>
         {userData && (
           <div style={styles.userInfo}>
             <div style={styles.userName}>{userData.name}님</div>

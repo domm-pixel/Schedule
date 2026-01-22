@@ -72,7 +72,15 @@ const CompanyCalendar: React.FC = () => {
       });
 
       // isPublic이 true인 스케줄만 필터링
-      const publicSchedules = schedulesList.filter(schedule => schedule.isPublic === true);
+      // 단, 미팅 타입은 완료/연기 상태면 비공개 처리
+      const publicSchedules = schedulesList.filter(schedule => {
+        if (schedule.isPublic !== true) return false;
+        // 미팅이고 완료/연기면 숨김
+        if (schedule.level === '미팅' && (schedule.status === '완료' || schedule.status === '연기')) {
+          return false;
+        }
+        return true;
+      });
 
       // 2) 휴가(vacations) 조회
       let vQuery: any = collection(db, 'vacations');

@@ -14,6 +14,7 @@ const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [vacations, setVacations] = useState<Vacation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewingSubstituteUserId, setViewingSubstituteUserId] = useState<string | null>(null);
   const { userData } = useAuth();
   const history = useHistory();
 
@@ -83,13 +84,19 @@ const UserManagement: React.FC = () => {
 
     // 1년 미만: 월차 계산 (최대 11개, 1년 시점에 지급)
     if (yearsSinceHire < 1) {
-      // 입사 후 경과 개월 수 계산
+      // 월차는 입사 후 한 달이 지나야 지급됨 (예: 1월 22일 입사 → 2월 22일부터 첫 월차)
+      // 각 월차는 입사일로부터 N개월 후에 지급됨 (N = 1, 2, 3, ..., 11)
       let monthsElapsed = 0;
-      let base = hireDate;
       
-      while (!isAfter(base, today) && monthsElapsed < 11) {
-        monthsElapsed += 1;
-        base = addMonths(hireDate, monthsElapsed);
+      // 첫 번째 월차 지급일부터 시작 (입사일 + 1개월)
+      for (let month = 1; month <= 11; month++) {
+        const accrualDate = addMonths(hireDate, month);
+        // 해당 월차 지급일이 오늘 이전이거나 오늘이면 지급됨
+        if (isBefore(accrualDate, today) || accrualDate.getTime() === today.getTime()) {
+          monthsElapsed = month;
+        } else {
+          break; // 아직 지급되지 않은 월차를 만나면 중단
+        }
       }
       
       // 1년이 되는 시점에 월차 11개 지급
@@ -260,7 +267,7 @@ const UserManagement: React.FC = () => {
   return (
     <div style={{ display: 'flex' }}>
       <Sidebar />
-      <div style={{ marginLeft: '250px', width: 'calc(100% - 250px)', padding: '2rem' }}>
+      <div style={{ marginLeft: '250px', width: 'calc(100% - 250px)', padding: '1.5rem' }}>
         <div style={styles.container}>
           <div style={styles.headerRow}>
             <h1 style={styles.title}>회원 관리</h1>
@@ -290,9 +297,9 @@ const UserManagement: React.FC = () => {
           <tbody>
             {usersWithStats.map((user) => (
               <tr key={user.id}>
-                <td style={styles.td}>{user.name}</td>
-                <td style={styles.td}>{user.username}</td>
-                <td style={styles.td}>{user.team}</td>
+                <td style={{ ...styles.td, ...styles.nameCell }}>{user.name}</td>
+                <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{user.username}</td>
+                <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{user.team}</td>
               <td style={styles.td}>
                 <DatePicker
                   selected={user.hireDate ? new Date(user.hireDate) : null}
@@ -369,7 +376,7 @@ const UserManagement: React.FC = () => {
                   )}
                 </td>
                 <td style={styles.td}>
-                  <div style={styles.substituteHolidays}>
+                  <div style={styles.substituteHolidaysCell}>
                     <button
                       onClick={() => handleAddSubstituteHoliday(user.id)}
                       style={styles.addButton}
@@ -377,29 +384,23 @@ const UserManagement: React.FC = () => {
                     >
                       +
                     </button>
-                    <div style={styles.substituteList}>
-                      {(user.substituteHolidays || []).map((dateStr) => (
-                        <div key={dateStr} style={styles.substituteItem}>
-                          <span>{new Date(dateStr).toLocaleDateString('ko-KR')}</span>
-                          <button
-                            onClick={() => handleRemoveSubstituteHoliday(user.id, dateStr)}
-                            style={styles.removeButton}
-                            title="삭제"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                      {(!user.substituteHolidays || user.substituteHolidays.length === 0) && (
-                        <span style={styles.noData}>없음</span>
-                      )}
-                    </div>
+                    {(user.substituteHolidays && user.substituteHolidays.length > 0) ? (
+                      <button
+                        onClick={() => setViewingSubstituteUserId(viewingSubstituteUserId === user.id ? null : user.id)}
+                        style={styles.viewButton}
+                        title="대체 휴무일 열람"
+                      >
+                        열람 ({user.substituteHolidays.length})
+                      </button>
+                    ) : (
+                      <span style={styles.noData}>없음</span>
+                    )}
                   </div>
                 </td>
                 <td style={styles.td}>
                   <button
                     onClick={() => handleGoToVacationManagement(user.uid)}
-                    style={styles.vacationManageButton}
+                    style={{ ...styles.vacationManageButton, whiteSpace: 'nowrap' }}
                   >
                     휴가 관리
                   </button>
@@ -421,14 +422,68 @@ const UserManagement: React.FC = () => {
       </div>
         </div>
       </div>
+      
+      {/* 대체 휴무일 열람 모달 */}
+      {viewingSubstituteUserId && (
+        <div style={styles.modalOverlay} onClick={() => setViewingSubstituteUserId(null)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>
+                {users.find(u => u.id === viewingSubstituteUserId)?.name}님의 대체 휴무일
+              </h3>
+              <button
+                onClick={() => setViewingSubstituteUserId(null)}
+                style={styles.modalCloseButton}
+              >
+                ×
+              </button>
+            </div>
+            <div style={styles.modalBody}>
+              {(() => {
+                const user = users.find(u => u.id === viewingSubstituteUserId);
+                const holidays = user?.substituteHolidays || [];
+                if (holidays.length === 0) {
+                  return <p style={styles.noData}>대체 휴무일이 없습니다.</p>;
+                }
+                return (
+                  <div style={styles.substituteList}>
+                    {holidays.map((dateStr) => (
+                      <div key={dateStr} style={styles.substituteItem}>
+                        <span>{new Date(dateStr).toLocaleDateString('ko-KR', { 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric',
+                          weekday: 'short'
+                        })}</span>
+                        <button
+                          onClick={() => {
+                            handleRemoveSubstituteHoliday(viewingSubstituteUserId, dateStr);
+                            if (holidays.length === 1) {
+                              setViewingSubstituteUserId(null);
+                            }
+                          }}
+                          style={styles.removeButton}
+                          title="삭제"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
-    maxWidth: '1200px',
-    margin: '0 auto',
+    maxWidth: '100%',
+    margin: 0,
   },
   headerRow: {
     display: 'flex',
@@ -453,16 +508,22 @@ const styles: { [key: string]: React.CSSProperties } = {
     boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
   },
   th: {
-    padding: '1rem',
+    padding: '0.75rem 1rem',
     textAlign: 'left',
     backgroundColor: '#f8f9fa',
     borderBottom: '2px solid #dee2e6',
     fontWeight: '600',
     color: '#495057',
+    whiteSpace: 'nowrap',
   },
   td: {
-    padding: '1rem',
+    padding: '0.75rem 1rem',
     borderBottom: '1px solid #dee2e6',
+    verticalAlign: 'top',
+  },
+  nameCell: {
+    whiteSpace: 'nowrap',
+    minWidth: '120px',
   },
   select: {
     padding: '0.5rem',
@@ -523,10 +584,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: '0.9rem',
     width: '80px',
   },
-  substituteHolidays: {
+  substituteHolidaysCell: {
     display: 'flex',
-    flexDirection: 'column',
+    alignItems: 'center',
     gap: '0.5rem',
+    whiteSpace: 'nowrap',
   },
   addButton: {
     padding: '0.25rem 0.5rem',
@@ -541,31 +603,93 @@ const styles: { [key: string]: React.CSSProperties } = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
+  },
+  viewButton: {
+    padding: '0.4rem 0.8rem',
+    backgroundColor: '#6c757d',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.85rem',
+    whiteSpace: 'nowrap',
   },
   substituteList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '0.25rem',
-    maxHeight: '150px',
+    gap: '0.5rem',
+    maxHeight: '400px',
     overflowY: 'auto',
   },
   substituteItem: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '0.25rem 0.5rem',
+    padding: '0.75rem 1rem',
     backgroundColor: '#e7f3ff',
     borderRadius: '4px',
-    fontSize: '0.85rem',
+    fontSize: '0.9rem',
   },
   removeButton: {
-    padding: '0 0.25rem',
+    padding: '0.25rem 0.5rem',
     backgroundColor: 'transparent',
     color: '#dc3545',
-    border: 'none',
+    border: '1px solid #dc3545',
+    borderRadius: '4px',
     cursor: 'pointer',
-    fontSize: '1.2rem',
+    fontSize: '0.9rem',
+    marginLeft: '1rem',
+  },
+  modalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: '8px',
+    padding: '0',
+    maxWidth: '500px',
+    width: '90%',
+    maxHeight: '80vh',
+    display: 'flex',
+    flexDirection: 'column',
+    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+  },
+  modalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '1.5rem',
+    borderBottom: '1px solid #dee2e6',
+  },
+  modalTitle: {
+    margin: 0,
+    fontSize: '1.25rem',
+    color: '#333',
+  },
+  modalCloseButton: {
+    padding: '0.25rem 0.75rem',
+    backgroundColor: 'transparent',
+    color: '#666',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '1.5rem',
     lineHeight: 1,
+    fontWeight: 'bold',
+  },
+  modalBody: {
+    padding: '1.5rem',
+    overflowY: 'auto',
   },
   vacationManageButton: {
     padding: '0.5rem 1rem',

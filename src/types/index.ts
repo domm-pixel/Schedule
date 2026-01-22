@@ -102,3 +102,15 @@ export interface SubstituteHolidayRequest {
   reviewedByName?: string; // 승인/반려한 관리자 이름
   reviewedAt?: any; // 승인/반려 일시 (Firebase Timestamp)
 }
+
+// 게시판 글 타입
+export interface Post {
+  id: string; // Firestore 문서 ID
+  title: string; // 글 제목
+  content: string; // 글 내용
+  category: 'notice' | 'bug' | 'general'; // 카테고리: 공지, 버그리포트, 일반
+  authorUid: string; // 작성자 UID
+  authorName: string; // 작성자 이름
+  createdAt: any; // 작성일시 (Firebase Timestamp)
+  updatedAt?: any; // 수정일시 (Firebase Timestamp)
+}

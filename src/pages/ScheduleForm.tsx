@@ -261,7 +261,11 @@ const ScheduleForm: React.FC = () => {
           changeHistory = [...existingHistory, ...changeHistory];
         }
 
-        const scheduleData: Omit<Schedule, 'id'> = {
+        // startTime과 endTime이 있는 경우에만 포함
+        const startTime = formData.startTime && formData.startTime.trim() ? formData.startTime : null;
+        const endTime = formData.endTime && formData.endTime.trim() ? formData.endTime : null;
+
+        const scheduleData: any = {
           taskId: formData.taskId,
           taskName: formData.taskName,
           level: formData.level,
@@ -270,8 +274,6 @@ const ScheduleForm: React.FC = () => {
           startDate: new Date(formData.startDate).toISOString(),
           endDate: new Date(formData.endDate).toISOString(),
           deadline: new Date(formData.endDate).toISOString(), // 하위 호환성을 위해 endDate와 동일하게 설정
-          startTime: formData.startTime || undefined,
-          endTime: formData.endTime || undefined,
           isPublic: formData.isPublic,
           note: formData.note || '',
           userId: userData.uid,
@@ -279,6 +281,8 @@ const ScheduleForm: React.FC = () => {
           createdAt: isEdit ? (await getDoc(doc(db, 'schedules', id!))).data()?.createdAt : serverTimestamp() as any,
           updatedAt: serverTimestamp() as any,
           ...(changeHistory.length > 0 && { history: changeHistory }),
+          ...(startTime && { startTime }),
+          ...(endTime && { endTime }),
         };
 
         if (isEdit && id) {

@@ -87,6 +87,11 @@ const Signup: React.FC = () => {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
+        <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+          <img src="/logo192.png" alt="돌돌" style={{ width: '80px', height: 'auto', marginBottom: '0.5rem' }} />
+          <h1 style={{ margin: 0, fontSize: '1.5rem', color: '#2c3e50' }}>돌돌 스퀘어</h1>
+          <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem', color: '#7f8c8d' }}>주식회사 꾼 그룹웨어</p>
+        </div>
         <h2 style={styles.title}>회원가입</h2>
         {error && <div style={styles.error}>{error}</div>}
         <form onSubmit={handleSubmit} style={styles.form}>
