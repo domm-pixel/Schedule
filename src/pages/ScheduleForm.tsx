@@ -15,6 +15,20 @@ const ScheduleForm: React.FC = () => {
   const history = useHistory();
   const { userData } = useAuth();
 
+  // 날짜 문자열을 로컬 시간대 기준 Date 객체로 변환
+  const parseDateString = (dateStr: string): Date => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
+
+  // 날짜를 로컬 시간대 기준으로 yyyy-MM-dd 형식으로 변환
+  const formatDateToLocal = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [formData, setFormData] = useState({
     taskId: '',
     taskName: '',
@@ -360,8 +374,7 @@ const ScheduleForm: React.FC = () => {
             <option value="L4" title={LEVEL_DESCRIPTIONS['L4']}>L4</option>
             <option value="L5" title={LEVEL_DESCRIPTIONS['L5']}>L5</option>
             <option value="L6" title={LEVEL_DESCRIPTIONS['L6']}>L6</option>
-            {/* 휴가는 별도 휴가 관리 화면에서만 사용 */}
-            <option value="재택" title={LEVEL_DESCRIPTIONS['재택']}>재택</option>
+            {/* 휴가와 재택은 별도 관리 화면에서만 사용 */}
             <option value="미팅" title={LEVEL_DESCRIPTIONS['미팅']}>미팅</option>
           </select>
           {LEVEL_DESCRIPTIONS[formData.level] && (
@@ -402,10 +415,10 @@ const ScheduleForm: React.FC = () => {
           <div style={styles.formGroup}>
             <label style={styles.label}>날짜 *</label>
             <DatePicker
-              selected={formData.startDate ? new Date(formData.startDate) : null}
+              selected={formData.startDate ? parseDateString(formData.startDate) : null}
               onChange={(date: Date | null) => {
                 if (date) {
-                  const dateStr = date.toISOString().split('T')[0];
+                  const dateStr = formatDateToLocal(date);
                   setFormData({ ...formData, startDate: dateStr, endDate: dateStr });
                 }
               }}
@@ -428,11 +441,10 @@ const ScheduleForm: React.FC = () => {
             <div style={styles.formGroup}>
               <label style={styles.label}>시작일 *</label>
               <DatePicker
-                selected={formData.startDate ? new Date(formData.startDate) : null}
+                selected={formData.startDate ? parseDateString(formData.startDate) : null}
                 onChange={(date: Date | null) => {
                   if (date) {
-                    const dateStr = date.toISOString().split('T')[0];
-                    setFormData({ ...formData, startDate: dateStr });
+                    setFormData({ ...formData, startDate: formatDateToLocal(date) });
                   }
                 }}
                 dateFormat="yyyy-MM-dd"
@@ -450,17 +462,16 @@ const ScheduleForm: React.FC = () => {
             <div style={styles.formGroup}>
               <label style={styles.label}>종료일 *</label>
               <DatePicker
-                selected={formData.endDate ? new Date(formData.endDate) : null}
+                selected={formData.endDate ? parseDateString(formData.endDate) : null}
                 onChange={(date: Date | null) => {
                   if (date) {
-                    const dateStr = date.toISOString().split('T')[0];
-                    setFormData({ ...formData, endDate: dateStr });
+                    setFormData({ ...formData, endDate: formatDateToLocal(date) });
                   }
                 }}
                 dateFormat="yyyy-MM-dd"
                 locale={ko}
                 placeholderText="종료일을 선택하세요"
-                minDate={formData.startDate ? new Date(formData.startDate) : undefined}
+                minDate={formData.startDate ? parseDateString(formData.startDate) : undefined}
                 showYearDropdown
                 showMonthDropdown
                 yearDropdownItemNumber={100}
@@ -479,27 +490,61 @@ const ScheduleForm: React.FC = () => {
           <>
             <div style={styles.formGroup}>
               <label style={styles.label}>시작 시간</label>
-              <input
-                type="time"
-                value={formData.startTime}
-                onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-                style={styles.input}
+              <DatePicker
+                selected={formData.startTime ? (() => {
+                  const [hours, minutes] = formData.startTime.split(':').map(Number);
+                  const date = formData.startDate ? parseDateString(formData.startDate) : new Date();
+                  date.setHours(hours || 9, minutes || 0, 0, 0);
+                  return date;
+                })() : null}
+                onChange={(date: Date | null) => {
+                  if (date) {
+                    const hours = String(date.getHours()).padStart(2, '0');
+                    const minutes = String(date.getMinutes()).padStart(2, '0');
+                    setFormData({ ...formData, startTime: `${hours}:${minutes}` });
+                  }
+                }}
+                showTimeSelect
+                showTimeSelectOnly
+                timeIntervals={15}
+                timeCaption="시간"
+                dateFormat="HH:mm"
+                locale={ko}
+                placeholderText="시작 시간 선택"
+                className="date-picker-input"
               />
               <small style={styles.helpText}>
-                미팅 시작 시간을 입력하세요 (예: 14:30)
+                미팅 시작 시간을 선택하세요 (15분 단위)
               </small>
             </div>
 
             <div style={styles.formGroup}>
               <label style={styles.label}>종료 시간</label>
-              <input
-                type="time"
-                value={formData.endTime}
-                onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-                style={styles.input}
+              <DatePicker
+                selected={formData.endTime ? (() => {
+                  const [hours, minutes] = formData.endTime.split(':').map(Number);
+                  const date = formData.startDate ? parseDateString(formData.startDate) : new Date();
+                  date.setHours(hours || 18, minutes || 0, 0, 0);
+                  return date;
+                })() : null}
+                onChange={(date: Date | null) => {
+                  if (date) {
+                    const hours = String(date.getHours()).padStart(2, '0');
+                    const minutes = String(date.getMinutes()).padStart(2, '0');
+                    setFormData({ ...formData, endTime: `${hours}:${minutes}` });
+                  }
+                }}
+                showTimeSelect
+                showTimeSelectOnly
+                timeIntervals={15}
+                timeCaption="시간"
+                dateFormat="HH:mm"
+                locale={ko}
+                placeholderText="종료 시간 선택"
+                className="date-picker-input"
               />
               <small style={styles.helpText}>
-                미팅 종료 시간을 입력하세요 (예: 16:00)
+                미팅 종료 시간을 선택하세요 (15분 단위)
               </small>
             </div>
           </>

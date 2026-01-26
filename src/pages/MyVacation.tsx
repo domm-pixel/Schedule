@@ -9,21 +9,47 @@ import Toast from '../components/Toast';
 import DatePicker from 'react-datepicker';
 import { ko } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
+import { 
+  notifyVacationCreated, 
+  notifySubstituteHolidayRequestCreated,
+  notifyRemoteWorkCreated
+} from '../utils/slackNotification';
 
 const MyVacation: React.FC = () => {
   const { userData, refreshUserData } = useAuth();
   const [vacations, setVacations] = useState<Vacation[]>([]);
   const [requests, setRequests] = useState<SubstituteHolidayRequest[]>([]);
-  const [activeTab, setActiveTab] = useState<'vacation' | 'substitute'>('vacation');
+  const [activeTab, setActiveTab] = useState<'vacation' | 'substitute' | 'remote'>('vacation');
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
   const [newDate, setNewDate] = useState('');
+  const [newEndDate, setNewEndDate] = useState(''); // 여러 날짜 선택용
   const [newReason, setNewReason] = useState('');
   const [newSubstituteUserName, setNewSubstituteUserName] = useState('');
-  const [requestDate, setRequestDate] = useState('');
+  const [requestWorkDate, setRequestWorkDate] = useState(''); // 근무한 휴일
+  const [requestUseDate, setRequestUseDate] = useState(''); // 사용하려는 휴일
   const [requestReason, setRequestReason] = useState('');
   const [requestSubstituteUserName, setRequestSubstituteUserName] = useState('');
+  // 재택근무 관련
+  const [remoteDate, setRemoteDate] = useState('');
+  const [remoteStartTime, setRemoteStartTime] = useState('09:00');
+  const [remoteEndTime, setRemoteEndTime] = useState('18:00');
+  const [remoteLocation, setRemoteLocation] = useState('자택');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // 날짜를 로컬 시간대 기준으로 yyyy-MM-dd 형식으로 변환
+  const formatDateToLocal = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // 날짜 문자열을 로컬 시간대 기준 Date 객체로 변환
+  const parseDateString = (dateStr: string): Date => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
 
   const fetchVacations = useCallback(async () => {
     if (!userData) return;
@@ -77,36 +103,66 @@ const MyVacation: React.FC = () => {
   const handleAddVacation = async () => {
     if (!userData || !newDate) return;
     
+    // 날짜 범위 계산
+    const startDate = parseISO(newDate);
+    const endDate = newEndDate ? parseISO(newEndDate) : startDate;
+    
+    if (isAfter(startDate, endDate)) {
+      setToast({ message: '종료일은 시작일 이후여야 합니다.', type: 'error' });
+      return;
+    }
+    
     // 입력 검증
-    const selectedDate = parseISO(newDate);
-    if (isPast(startOfDay(selectedDate))) {
+    if (isPast(startOfDay(startDate))) {
       setToast({ message: '과거 날짜는 등록할 수 없습니다.', type: 'error' });
       return;
     }
     
-    // 중복 체크
-    const isDuplicate = vacations.some((v) => v.date === newDate);
-    if (isDuplicate) {
-      setToast({ message: '이미 등록된 날짜입니다.', type: 'error' });
-      return;
+    // 날짜 배열 생성 (시작일부터 종료일까지)
+    const dates: string[] = [];
+    let currentDate = new Date(startDate);
+    while (currentDate <= endDate) {
+      const dateStr = formatDateToLocal(currentDate);
+      // 중복 체크
+      if (vacations.some((v) => v.date === dateStr)) {
+        setToast({ message: `${dateStr}는 이미 등록된 날짜입니다.`, type: 'error' });
+        return;
+      }
+      dates.push(dateStr);
+      currentDate.setDate(currentDate.getDate() + 1);
     }
     
     try {
-      await addDoc(collection(db, 'vacations'), {
-        userId: userData.uid,
-        date: newDate,
-        days: 1,
-        reason: newReason || null,
-        substituteUserName: newSubstituteUserName || userData.name,
-        createdByUid: userData.uid,
-        createdByName: userData.name,
-        createdAt: serverTimestamp(),
-      });
+      // 각 날짜별로 휴가 등록
+      const batch = dates.map(date => 
+        addDoc(collection(db, 'vacations'), {
+          userId: userData.uid,
+          date: date,
+          days: 1,
+          reason: newReason || null,
+          substituteUserName: newSubstituteUserName || userData.name,
+          createdByUid: userData.uid,
+          createdByName: userData.name,
+          createdAt: serverTimestamp(),
+        })
+      );
+      
+      await Promise.all(batch);
+      
       setNewDate('');
+      setNewEndDate('');
       setNewReason('');
       setNewSubstituteUserName(userData.name); // 기본값으로 리셋
       fetchVacations();
-      setToast({ message: '휴가가 등록되었습니다.', type: 'success' });
+      setToast({ message: `${dates.length}일의 휴가가 등록되었습니다.`, type: 'success' });
+      
+      // Slack 알림 전송 (여러 날짜)
+      notifyVacationCreated(
+        userData.name,
+        dates,
+        newSubstituteUserName || userData.name,
+        newReason || undefined
+      ).catch(err => console.error('Slack 알림 전송 실패:', err));
     } catch (error) {
       console.error('휴가 등록 실패:', error);
       setToast({ message: '휴가 등록에 실패했습니다.', type: 'error' });
@@ -141,7 +197,9 @@ const MyVacation: React.FC = () => {
           id: d.id,
           userId: data.userId,
           userName: data.userName,
-          date: data.date,
+          workDate: data.workDate || data.date, // 하위 호환성
+          useDate: data.useDate || data.date, // 하위 호환성
+          date: data.useDate || data.date, // 하위 호환성
           reason: data.reason,
           substituteUserName: data.substituteUserName || userData.name,
           status: data.status,
@@ -210,7 +268,8 @@ const MyVacation: React.FC = () => {
     
     const approvedDates = requests
       .filter((req) => req.status === 'approved')
-      .map((req) => req.date);
+      .map((req) => req.useDate || req.date)
+      .filter((date): date is string => !!date); // undefined 제거
     const currentHolidays = userData.substituteHolidays || [];
     const hasNewApprovals = approvedDates.some((date) => !currentHolidays.includes(date));
     
@@ -233,21 +292,31 @@ const MyVacation: React.FC = () => {
   }, [userData, activeTab, fetchRequests]);
 
   const handleSubmitRequest = async () => {
-    if (!userData || !requestDate) return;
+    if (!userData || !requestWorkDate || !requestUseDate) {
+      setToast({ message: '근무한 휴일과 사용하려는 휴일을 모두 선택해주세요.', type: 'error' });
+      return;
+    }
     
     // 입력 검증
-    const selectedDate = parseISO(requestDate);
-    if (isPast(startOfDay(selectedDate))) {
-      setToast({ message: '과거 날짜는 신청할 수 없습니다.', type: 'error' });
+    const workDate = parseISO(requestWorkDate);
+    const useDate = parseISO(requestUseDate);
+    
+    // 근무한 휴일은 과거 날짜도 가능 (사후 신청)
+    // 사용하려는 휴일만 미래 날짜여야 함
+    if (isPast(startOfDay(useDate))) {
+      setToast({ message: '사용하려는 휴일은 과거 날짜일 수 없습니다.', type: 'error' });
       return;
     }
     
     // 중복 체크 (대기중이거나 승인된 신청)
     const isDuplicate = requests.some(
-      (req) => req.date === requestDate && (req.status === 'pending' || req.status === 'approved')
+      (req) => {
+        const reqUseDate = req.useDate || req.date; // 하위 호환성
+        return reqUseDate === requestUseDate && (req.status === 'pending' || req.status === 'approved');
+      }
     );
     if (isDuplicate) {
-      setToast({ message: '이미 신청된 날짜입니다.', type: 'error' });
+      setToast({ message: '이미 신청된 사용 날짜입니다.', type: 'error' });
       return;
     }
     
@@ -255,7 +324,9 @@ const MyVacation: React.FC = () => {
       await addDoc(collection(db, 'substituteHolidayRequests'), {
         userId: userData.uid,
         userName: userData.name,
-        date: requestDate,
+        workDate: requestWorkDate,
+        useDate: requestUseDate,
+        date: requestUseDate, // 하위 호환성을 위해 useDate와 동일하게 저장
         reason: requestReason || null,
         substituteUserName: requestSubstituteUserName || userData.name,
         status: 'pending',
@@ -263,11 +334,21 @@ const MyVacation: React.FC = () => {
         createdByName: userData.name,
         createdAt: serverTimestamp(),
       });
-      setRequestDate('');
+      setRequestWorkDate('');
+      setRequestUseDate('');
       setRequestReason('');
       setRequestSubstituteUserName(userData.name); // 기본값으로 리셋
       fetchRequests();
       setToast({ message: '대체 휴무 신청이 완료되었습니다. 관리자 승인을 기다려주세요.', type: 'success' });
+      
+      // Slack 알림 전송
+      notifySubstituteHolidayRequestCreated(
+        userData.name,
+        requestWorkDate,
+        requestUseDate,
+        requestSubstituteUserName || userData.name,
+        requestReason || undefined
+      ).catch(err => console.error('Slack 알림 전송 실패:', err));
     } catch (error) {
       console.error('대체 휴무 신청 실패:', error);
       setToast({ message: '대체 휴무 신청에 실패했습니다.', type: 'error' });
@@ -370,6 +451,15 @@ const MyVacation: React.FC = () => {
                 </span>
               )}
             </button>
+            <button
+              style={{
+                ...styles.tabButton,
+                ...(activeTab === 'remote' ? styles.tabButtonActive : {}),
+              }}
+              onClick={() => setActiveTab('remote')}
+            >
+              재택근무 신청
+            </button>
           </div>
 
           {activeTab === 'vacation' && (
@@ -411,22 +501,48 @@ const MyVacation: React.FC = () => {
 
           <div style={styles.card}>
             <h2 style={styles.cardTitle}>휴가 사용 등록</h2>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>날짜 *</label>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>시작일 *</label>
                 <DatePicker
-                  selected={newDate ? new Date(newDate) : null}
+                  selected={newDate ? parseDateString(newDate) : null}
                   onChange={(date: Date | null) => {
                     if (date) {
-                      setNewDate(date.toISOString().split('T')[0]);
+                      setNewDate(formatDateToLocal(date));
+                      // 종료일이 시작일보다 이전이면 초기화
+                      if (newEndDate && parseISO(newEndDate) < date) {
+                        setNewEndDate('');
+                      }
                     } else {
                       setNewDate('');
                     }
                   }}
                   dateFormat="yyyy-MM-dd"
                   locale={ko}
-                  placeholderText="날짜를 선택하세요"
+                  placeholderText="시작일 선택"
                   minDate={new Date()}
+                  showYearDropdown
+                  showMonthDropdown
+                  yearDropdownItemNumber={100}
+                  scrollableYearDropdown
+                  className="date-picker-input"
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>종료일 (선택)</label>
+                <DatePicker
+                  selected={newEndDate ? parseDateString(newEndDate) : null}
+                  onChange={(date: Date | null) => {
+                    if (date) {
+                      setNewEndDate(formatDateToLocal(date));
+                    } else {
+                      setNewEndDate('');
+                    }
+                  }}
+                  dateFormat="yyyy-MM-dd"
+                  locale={ko}
+                  placeholderText="종료일 선택 (없으면 1일)"
+                  minDate={newDate ? new Date(newDate) : new Date()}
                   showYearDropdown
                   showMonthDropdown
                   yearDropdownItemNumber={100}
@@ -448,11 +564,11 @@ const MyVacation: React.FC = () => {
                   ))}
                 </select>
               </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>사유</label>
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>비고 (사유)</label>
                 <input
                   type="text"
-                  placeholder="사유 (선택)"
+                  placeholder="비고 (선택)"
                   value={newReason}
                   onChange={(e) => setNewReason(e.target.value)}
                   style={{ height: '38px', padding: '0.5rem 0.75rem', border: '1px solid #ddd', borderRadius: '4px', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box' }}
@@ -522,50 +638,80 @@ const MyVacation: React.FC = () => {
           <div style={styles.card}>
             <h2 style={styles.cardTitle}>대체 휴무 신청</h2>
             <div style={styles.helperText}>
-              * 대체 휴무는 휴일 근무 시 발생합니다. 관리자 승인 후 잔여 휴가에 반영됩니다.
+              * 대체 휴무는 휴일 근무 시 발생합니다. 근무한 휴일과 사용하려는 휴일을 선택해주세요. 관리자 승인 후 잔여 휴가에 반영됩니다.
             </div>
-            <div style={styles.formRow}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>근무한 휴일 *</label>
               <DatePicker
-                selected={requestDate ? new Date(requestDate) : null}
+                selected={requestWorkDate ? parseDateString(requestWorkDate) : null}
                 onChange={(date: Date | null) => {
                   if (date) {
-                    setRequestDate(date.toISOString().split('T')[0]);
+                    setRequestWorkDate(formatDateToLocal(date));
                   } else {
-                    setRequestDate('');
+                    setRequestWorkDate('');
                   }
                 }}
-                dateFormat="yyyy-MM-dd"
-                locale={ko}
-                placeholderText="근무한 휴일을 선택하세요"
-                minDate={new Date()}
-                showYearDropdown
-                showMonthDropdown
-                yearDropdownItemNumber={100}
-                scrollableYearDropdown
-                className="date-picker-input"
-              />
-              <select
-                value={requestSubstituteUserName}
-                onChange={(e) => setRequestSubstituteUserName(e.target.value)}
-                style={styles.input}
-              >
-                {users.map((user) => (
-                  <option key={user.uid} value={user.name}>
-                    {user.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="text"
-                placeholder="신청 사유 (선택)"
-                value={requestReason}
-                onChange={(e) => setRequestReason(e.target.value)}
-                style={styles.input}
-              />
+                  dateFormat="yyyy-MM-dd"
+                  locale={ko}
+                  placeholderText="근무한 휴일 선택 (과거 날짜 가능)"
+                  showYearDropdown
+                  showMonthDropdown
+                  yearDropdownItemNumber={100}
+                  scrollableYearDropdown
+                  className="date-picker-input"
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>사용하려는 휴일 *</label>
+                <DatePicker
+                  selected={requestUseDate ? parseDateString(requestUseDate) : null}
+                  onChange={(date: Date | null) => {
+                    if (date) {
+                      setRequestUseDate(formatDateToLocal(date));
+                    } else {
+                      setRequestUseDate('');
+                    }
+                  }}
+                  dateFormat="yyyy-MM-dd"
+                  locale={ko}
+                  placeholderText="사용하려는 휴일 선택"
+                  minDate={new Date()}
+                  showYearDropdown
+                  showMonthDropdown
+                  yearDropdownItemNumber={100}
+                  scrollableYearDropdown
+                  className="date-picker-input"
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>대직자 *</label>
+                <select
+                  value={requestSubstituteUserName}
+                  onChange={(e) => setRequestSubstituteUserName(e.target.value)}
+                  style={{ height: '38px', padding: '0.5rem 0.75rem', border: '1px solid #ddd', borderRadius: '4px', fontSize: '0.9rem', minWidth: '120px' }}
+                >
+                  {users.map((user) => (
+                    <option key={user.uid} value={user.name}>
+                      {user.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>비고 (사유)</label>
+                <input
+                  type="text"
+                  placeholder="비고 (선택)"
+                  value={requestReason}
+                  onChange={(e) => setRequestReason(e.target.value)}
+                  style={{ height: '38px', padding: '0.5rem 0.75rem', border: '1px solid #ddd', borderRadius: '4px', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box' }}
+                />
+              </div>
               <button
-                style={styles.addButton}
+                style={{ ...styles.addButton, height: '38px', padding: '0.5rem 1rem' }}
                 onClick={handleSubmitRequest}
-                disabled={!requestDate}
+                disabled={!requestWorkDate || !requestUseDate}
               >
                 신청
               </button>
@@ -583,6 +729,7 @@ const MyVacation: React.FC = () => {
                       <tr>
                         <th style={styles.th}>신청일</th>
                         <th style={styles.th}>근무한 휴일</th>
+                        <th style={styles.th}>사용하려는 휴일</th>
                         <th style={styles.th}>대직자</th>
                         <th style={styles.th}>사유</th>
                         <th style={styles.th}>상태</th>
@@ -590,7 +737,10 @@ const MyVacation: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {requests.map((req) => (
+                      {requests.map((req) => {
+                        const workDate = req.workDate || req.date; // 하위 호환성
+                        const useDate = req.useDate || req.date; // 하위 호환성
+                        return (
                         <tr key={req.id}>
                           <td style={styles.td}>
                             {req.createdAt
@@ -600,7 +750,10 @@ const MyVacation: React.FC = () => {
                               : '-'}
                           </td>
                           <td style={styles.td}>
-                            {new Date(req.date).toLocaleDateString('ko-KR')}
+                            {workDate ? new Date(workDate).toLocaleDateString('ko-KR') : '-'}
+                          </td>
+                          <td style={styles.td}>
+                            {useDate ? new Date(useDate).toLocaleDateString('ko-KR') : '-'}
                           </td>
                           <td style={styles.td}>{req.substituteUserName || userData?.name || '-'}</td>
                           <td style={styles.td}>{req.reason || '-'}</td>
@@ -636,12 +789,162 @@ const MyVacation: React.FC = () => {
                           )}
                         </td>
                       </tr>
-                    ))}
+                      );
+                      })}
                   </tbody>
                 </table>
               </div>
             )}
           </div>
+            </>
+          )}
+
+          {activeTab === 'remote' && (
+            <>
+              <div style={styles.card}>
+                <h2 style={styles.cardTitle}>재택근무 신청</h2>
+                <div style={styles.helperText}>
+                  * 재택근무 신청 시 관리자에게 알림이 전송됩니다.
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>재택일시 *</label>
+                    <DatePicker
+                      selected={remoteDate ? parseDateString(remoteDate) : null}
+                      onChange={(date: Date | null) => {
+                        if (date) {
+                          setRemoteDate(formatDateToLocal(date));
+                        } else {
+                          setRemoteDate('');
+                        }
+                      }}
+                      dateFormat="yyyy-MM-dd"
+                      locale={ko}
+                      placeholderText="재택일 선택"
+                      minDate={new Date()}
+                      showYearDropdown
+                      showMonthDropdown
+                      yearDropdownItemNumber={100}
+                      scrollableYearDropdown
+                      className="date-picker-input"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>출근시간 *</label>
+                    <DatePicker
+                      selected={remoteStartTime ? (() => {
+                        const [hours, minutes] = remoteStartTime.split(':').map(Number);
+                        const date = remoteDate ? parseDateString(remoteDate) : new Date();
+                        date.setHours(hours || 9, minutes || 0, 0, 0);
+                        return date;
+                      })() : null}
+                      onChange={(date: Date | null) => {
+                        if (date) {
+                          const hours = String(date.getHours()).padStart(2, '0');
+                          const minutes = String(date.getMinutes()).padStart(2, '0');
+                          setRemoteStartTime(`${hours}:${minutes}`);
+                        }
+                      }}
+                      showTimeSelect
+                      showTimeSelectOnly
+                      timeIntervals={15}
+                      timeCaption="시간"
+                      dateFormat="HH:mm"
+                      locale={ko}
+                      placeholderText="출근시간 선택"
+                      className="date-picker-input"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>퇴근시간 *</label>
+                    <DatePicker
+                      selected={remoteEndTime ? (() => {
+                        const [hours, minutes] = remoteEndTime.split(':').map(Number);
+                        const date = remoteDate ? parseDateString(remoteDate) : new Date();
+                        date.setHours(hours || 18, minutes || 0, 0, 0);
+                        return date;
+                      })() : null}
+                      onChange={(date: Date | null) => {
+                        if (date) {
+                          const hours = String(date.getHours()).padStart(2, '0');
+                          const minutes = String(date.getMinutes()).padStart(2, '0');
+                          setRemoteEndTime(`${hours}:${minutes}`);
+                        }
+                      }}
+                      showTimeSelect
+                      showTimeSelectOnly
+                      timeIntervals={15}
+                      timeCaption="시간"
+                      dateFormat="HH:mm"
+                      locale={ko}
+                      placeholderText="퇴근시간 선택"
+                      className="date-picker-input"
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: '150px' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>근무장소 *</label>
+                    <input
+                      type="text"
+                      value={remoteLocation}
+                      onChange={(e) => setRemoteLocation(e.target.value)}
+                      placeholder="자택"
+                      style={{ height: '38px', padding: '0.5rem 0.75rem', border: '1px solid #ddd', borderRadius: '4px', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <button
+                    style={{ ...styles.addButton, height: '38px', padding: '0.5rem 1rem' }}
+                    onClick={async () => {
+                      if (!userData || !remoteDate) {
+                        setToast({ message: '재택일시를 선택해주세요.', type: 'error' });
+                        return;
+                      }
+                      
+                      try {
+                        const dateObj = new Date(remoteDate);
+                        const isoDate = `${remoteDate}T00:00:00.000Z`;
+                        
+                        await addDoc(collection(db, 'schedules'), {
+                          taskId: `remote_${userData.uid}_${Date.now()}`,
+                          taskName: '재택근무',
+                          level: '재택',
+                          description: '재택근무',
+                          status: '진행중',
+                          startDate: isoDate,
+                          endDate: isoDate,
+                          startTime: remoteStartTime,
+                          endTime: remoteEndTime,
+                          note: remoteLocation,
+                          isPublic: true,
+                          userId: userData.uid,
+                          userName: userData.name,
+                          createdAt: new Date().toISOString(),
+                        });
+                        
+                        setRemoteDate('');
+                        setRemoteStartTime('09:00');
+                        setRemoteEndTime('18:00');
+                        setRemoteLocation('자택');
+                        setToast({ message: '재택근무 신청이 완료되었습니다.', type: 'success' });
+                        
+                        // Slack 알림 전송
+                        notifyRemoteWorkCreated(
+                          userData.name,
+                          remoteDate,
+                          remoteStartTime,
+                          remoteEndTime,
+                          remoteLocation
+                        ).catch(err => console.error('Slack 알림 전송 실패:', err));
+                      } catch (error) {
+                        console.error('재택근무 신청 실패:', error);
+                        setToast({ message: '재택근무 신청에 실패했습니다.', type: 'error' });
+                      }
+                    }}
+                    disabled={!remoteDate}
+                  >
+                    신청
+                  </button>
+                </div>
+              </div>
             </>
           )}
         </div>

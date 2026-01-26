@@ -90,7 +90,9 @@ export interface SubstituteHolidayRequest {
   id: string; // Firestore 문서 ID
   userId: string; // 신청자 UID
   userName: string; // 신청자 이름
-  date: string; // 대체 휴무일 (yyyy-MM-dd)
+  workDate: string; // 근무한 휴일 (yyyy-MM-dd)
+  useDate: string; // 사용하려는 휴일 (yyyy-MM-dd)
+  date?: string; // 하위 호환성을 위한 필드 (useDate와 동일)
   reason?: string; // 신청 사유 (선택)
   substituteUserName?: string; // 대직자 이름 (기록 보존을 위해 이름만 저장)
   status: 'pending' | 'approved' | 'rejected'; // 상태: 대기중, 승인, 반려

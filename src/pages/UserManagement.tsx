@@ -260,6 +260,12 @@ const UserManagement: React.FC = () => {
     history.push('/vacations/admin', { selectedUserId: userUid });
   };
 
+  // 날짜 문자열을 로컬 시간대 기준 Date 객체로 변환
+  const parseDateString = (dateStr: string): Date => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
+
   if (loading) {
     return <div style={styles.loading}>로딩 중...</div>;
   }
@@ -302,10 +308,13 @@ const UserManagement: React.FC = () => {
                 <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{user.team}</td>
               <td style={styles.td}>
                 <DatePicker
-                  selected={user.hireDate ? new Date(user.hireDate) : null}
+                  selected={user.hireDate ? parseDateString(user.hireDate) : null}
                   onChange={(date: Date | null) => {
                     if (date) {
-                      handleHireDateChange(user.id, date.toISOString().split('T')[0]);
+                      const year = date.getFullYear();
+                      const month = String(date.getMonth() + 1).padStart(2, '0');
+                      const day = String(date.getDate()).padStart(2, '0');
+                      handleHireDateChange(user.id, `${year}-${month}-${day}`);
                     } else {
                       handleHireDateChange(user.id, '');
                     }

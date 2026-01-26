@@ -12,6 +12,25 @@ import { ko } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
+import { 
+  notifyVacationCreated, 
+  notifySubstituteHolidayRequestApproved, 
+  notifySubstituteHolidayRequestRejected 
+} from '../utils/slackNotification';
+
+// 날짜를 로컬 시간대 기준으로 yyyy-MM-dd 형식으로 변환
+const formatDateToLocal = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// 날짜 문자열을 로컬 시간대 기준 Date 객체로 변환
+const parseDateString = (dateStr: string): Date => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
 
 interface AccrualStats {
   accrued: number;
@@ -122,7 +141,9 @@ const AdminVacation: React.FC = () => {
           id: d.id,
           userId: data.userId,
           userName: data.userName,
-          date: data.date,
+          workDate: data.workDate || data.date, // 하위 호환성
+          useDate: data.useDate || data.date, // 하위 호환성
+          date: data.useDate || data.date, // 하위 호환성
           reason: data.reason,
           substituteUserName: data.substituteUserName || targetUser?.name,
           status: data.status,
@@ -186,7 +207,7 @@ const AdminVacation: React.FC = () => {
     }
   }, [activeTab, fetchRequests]);
 
-  const handleApproveRequest = async (requestId: string, userId: string, date: string) => {
+  const handleApproveRequest = async (requestId: string, userId: string, useDate: string) => {
     if (!userData) return;
     try {
       const requestRef = doc(db, 'substituteHolidayRequests', requestId);
@@ -197,14 +218,14 @@ const AdminVacation: React.FC = () => {
         reviewedAt: serverTimestamp(),
       });
 
-      // 승인 시 해당 사용자의 substituteHolidays 배열에 추가
+      // 승인 시 해당 사용자의 substituteHolidays 배열에 사용하려는 휴일 추가
       const user = users.find((u) => u.uid === userId);
       if (user) {
         const currentHolidays = user.substituteHolidays || [];
-        if (!currentHolidays.includes(date)) {
+        if (!currentHolidays.includes(useDate)) {
           const userRef = doc(db, 'users', user.id);
           await updateDoc(userRef, {
-            substituteHolidays: [...currentHolidays, date],
+            substituteHolidays: [...currentHolidays, useDate],
             updatedAt: new Date().toISOString(),
           });
         }
@@ -215,6 +236,17 @@ const AdminVacation: React.FC = () => {
         fetchUsers();
       }
       setToast({ message: '승인 완료되었습니다.', type: 'success' });
+      
+      // Slack 알림 전송
+      const request = requests.find(r => r.id === requestId);
+      if (request) {
+        notifySubstituteHolidayRequestApproved(
+          request.userName,
+          request.workDate || request.date || '',
+          request.useDate || request.date || '',
+          userData.name
+        ).catch(err => console.error('Slack 알림 전송 실패:', err));
+      }
     } catch (error) {
       console.error('승인 실패:', error);
       setToast({ message: '승인 처리에 실패했습니다.', type: 'error' });
@@ -228,6 +260,8 @@ const AdminVacation: React.FC = () => {
     }
     try {
       const requestRef = doc(db, 'substituteHolidayRequests', requestId);
+      const request = requests.find(r => r.id === requestId);
+      
       await updateDoc(requestRef, {
         status: 'rejected',
         rejectedReason: rejectReason.trim(),
@@ -240,26 +274,37 @@ const AdminVacation: React.FC = () => {
       setSelectedRequestId(null);
       fetchRequests();
       setToast({ message: '반려 처리되었습니다.', type: 'success' });
+      
+      // Slack 알림 전송
+      if (request) {
+        notifySubstituteHolidayRequestRejected(
+          request.userName,
+          request.workDate || request.date || '',
+          request.useDate || request.date || '',
+          rejectReason.trim(),
+          userData.name
+        ).catch(err => console.error('Slack 알림 전송 실패:', err));
+      }
     } catch (error) {
       console.error('반려 실패:', error);
       setToast({ message: '반려 처리에 실패했습니다.', type: 'error' });
     }
   };
 
-  const handleDeleteRequest = async (requestId: string, userId: string, date: string, status: string) => {
+  const handleDeleteRequest = async (requestId: string, userId: string, useDate: string, status: string) => {
     if (!window.confirm('이 신청 내역을 삭제하시겠습니까? 승인된 경우 사용자의 대체 휴무 일수에서도 제거됩니다.')) return;
     if (!userData) return;
     
     try {
-      // 승인된 신청인 경우, 사용자의 substituteHolidays 배열에서 해당 날짜 제거
+      // 승인된 신청인 경우, 사용자의 substituteHolidays 배열에서 사용하려는 휴일 제거
       if (status === 'approved') {
         const user = users.find((u) => u.uid === userId);
         if (user) {
           const currentHolidays = user.substituteHolidays || [];
-          if (currentHolidays.includes(date)) {
+          if (currentHolidays.includes(useDate)) {
             const userRef = doc(db, 'users', user.id);
             await updateDoc(userRef, {
-              substituteHolidays: currentHolidays.filter((d) => d !== date),
+              substituteHolidays: currentHolidays.filter((d) => d !== useDate),
               updatedAt: new Date().toISOString(),
             });
           }
@@ -285,13 +330,6 @@ const AdminVacation: React.FC = () => {
     const targetUser = users.find((u) => u.uid === selectedUserId);
     if (!targetUser) return;
 
-    // 입력 검증
-    const selectedDate = parseISO(newDate);
-    if (isPast(startOfDay(selectedDate))) {
-      setToast({ message: '과거 날짜는 등록할 수 없습니다.', type: 'error' });
-      return;
-    }
-    
     // 중복 체크
     const isDuplicate = vacations.some((v) => v.date === newDate);
     if (isDuplicate) {
@@ -315,6 +353,9 @@ const AdminVacation: React.FC = () => {
       setNewSubstituteUserName(targetUser.name); // 기본값으로 리셋
       fetchVacations(selectedUserId);
       setToast({ message: '휴가가 등록되었습니다.', type: 'success' });
+      
+      // Slack 알림 전송 (관리자가 등록하는 경우는 알림 제외)
+      // notifyVacationCreated는 사용자가 직접 등록할 때만 호출
     } catch (error) {
       console.error('휴가 등록 실패:', error);
       setToast({ message: '휴가 등록에 실패했습니다.', type: 'error' });
@@ -692,10 +733,10 @@ const AdminVacation: React.FC = () => {
                   <div>
                     <label style={{ display: 'block', fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem', fontWeight: '500' }}>날짜 *</label>
                     <DatePicker
-                      selected={newDate ? new Date(newDate) : null}
+                      selected={newDate ? parseDateString(newDate) : null}
                       onChange={(date: Date | null) => {
                         if (date) {
-                          setNewDate(date.toISOString().split('T')[0]);
+                          setNewDate(formatDateToLocal(date));
                         } else {
                           setNewDate('');
                         }
@@ -703,7 +744,6 @@ const AdminVacation: React.FC = () => {
                       dateFormat="yyyy-MM-dd"
                       locale={ko}
                       placeholderText="날짜를 선택하세요"
-                      minDate={new Date()}
                       showYearDropdown
                       showMonthDropdown
                       yearDropdownItemNumber={100}
@@ -895,6 +935,7 @@ const AdminVacation: React.FC = () => {
                         <th style={styles.th}>신청자</th>
                         <th style={styles.th}>신청일</th>
                         <th style={styles.th}>근무한 휴일</th>
+                        <th style={styles.th}>사용하려는 휴일</th>
                         <th style={styles.th}>대직자</th>
                         <th style={styles.th}>사유</th>
                         <th style={styles.th}>상태</th>
@@ -902,7 +943,10 @@ const AdminVacation: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {requests.map((req) => (
+                      {requests.map((req) => {
+                        const workDate = req.workDate || req.date; // 하위 호환성
+                        const useDate = req.useDate || req.date; // 하위 호환성
+                        return (
                         <tr key={req.id}>
                           <td style={styles.td}>{req.userName}</td>
                           <td style={styles.td}>
@@ -913,7 +957,10 @@ const AdminVacation: React.FC = () => {
                               : '-'}
                           </td>
                           <td style={styles.td}>
-                            {new Date(req.date).toLocaleDateString('ko-KR')}
+                            {workDate ? new Date(workDate).toLocaleDateString('ko-KR') : '-'}
+                          </td>
+                          <td style={styles.td}>
+                            {useDate ? new Date(useDate).toLocaleDateString('ko-KR') : '-'}
                           </td>
                           <td style={styles.td}>
                             {editingRequest?.id === req.id ? (
@@ -981,7 +1028,12 @@ const AdminVacation: React.FC = () => {
                               <div style={styles.actionButtons}>
                                 <button
                                   style={styles.approveButton}
-                                  onClick={() => handleApproveRequest(req.id, req.userId, req.date)}
+                                  onClick={() => {
+                                    const useDate = req.useDate || req.date || '';
+                                    if (useDate) {
+                                      handleApproveRequest(req.id, req.userId, useDate);
+                                    }
+                                  }}
                                 >
                                   승인
                                 </button>
@@ -1001,7 +1053,12 @@ const AdminVacation: React.FC = () => {
                                 )}
                                 <button
                                   style={styles.deleteButton}
-                                  onClick={() => handleDeleteRequest(req.id, req.userId, req.date, req.status)}
+                                  onClick={() => {
+                                    const useDate = req.useDate || req.date || '';
+                                    if (useDate) {
+                                      handleDeleteRequest(req.id, req.userId, useDate, req.status);
+                                    }
+                                  }}
                                   title="삭제"
                                 >
                                   삭제
@@ -1010,7 +1067,8 @@ const AdminVacation: React.FC = () => {
                             )}
                           </td>
                         </tr>
-                      ))}
+                        );
+                        })}
                     </tbody>
                   </table>
                 </div>
