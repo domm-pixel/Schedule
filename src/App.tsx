@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Route, Switch, Redirect } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { UsersProvider } from './context/UsersContext';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -12,6 +13,8 @@ import CompanyCalendar from './pages/CompanyCalendar';
 import MyVacation from './pages/MyVacation';
 import AdminVacation from './pages/AdminVacation';
 import Board from './pages/Board';
+import MyProfile from './pages/MyProfile';
+import MeetingRoom from './pages/MeetingRoom';
 
 // 로그인된 사용자만 접근 가능한 라우트 래퍼
 const ProtectedRoute: React.FC<{ path: string; component: React.ComponentType<any>; exact?: boolean }> = ({ 
@@ -73,6 +76,8 @@ const AppContent: React.FC = () => {
         <ProtectedRoute path="/calendar" exact component={CompanyCalendar} />
         <ProtectedRoute path="/vacations/my" exact component={MyVacation} />
         <ProtectedRoute path="/board" exact component={Board} />
+        <ProtectedRoute path="/profile" exact component={MyProfile} />
+        <ProtectedRoute path="/meeting-room" exact component={MeetingRoom} />
 
         {/* 관리자 전용 페이지 */}
         <AdminRoute path="/users" exact component={UserManagement} />
@@ -90,7 +95,9 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <AppContent />
+      <UsersProvider>
+        <AppContent />
+      </UsersProvider>
     </AuthProvider>
   );
 };

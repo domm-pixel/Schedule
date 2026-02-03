@@ -3,8 +3,9 @@ import { collection, addDoc, getDocs, query, where, orderBy, deleteDoc, doc, ser
 import { addMonths, addYears, isAfter, isBefore, parseISO, differenceInYears, isPast, startOfDay } from 'date-fns';
 import { db } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
+import { useUsers } from '../context/UsersContext';
 import Sidebar from '../components/Sidebar';
-import { Vacation, SubstituteHolidayRequest, User } from '../types';
+import { Vacation, SubstituteHolidayRequest } from '../types';
 import Toast from '../components/Toast';
 import DatePicker from 'react-datepicker';
 import { ko } from 'date-fns/locale';
@@ -17,11 +18,11 @@ import {
 
 const MyVacation: React.FC = () => {
   const { userData, refreshUserData } = useAuth();
+  const { users } = useUsers();
   const [vacations, setVacations] = useState<Vacation[]>([]);
   const [requests, setRequests] = useState<SubstituteHolidayRequest[]>([]);
   const [activeTab, setActiveTab] = useState<'vacation' | 'substitute' | 'remote'>('vacation');
   const [loading, setLoading] = useState(true);
-  const [users, setUsers] = useState<User[]>([]);
   const [newDate, setNewDate] = useState('');
   const [newEndDate, setNewEndDate] = useState(''); // 여러 날짜 선택용
   const [newReason, setNewReason] = useState('');
@@ -231,26 +232,11 @@ const MyVacation: React.FC = () => {
     }
   }, [userData]);
 
-  const fetchUsers = useCallback(async () => {
-    try {
-      const q = query(collection(db, 'users'), orderBy('name', 'asc'));
-      const snapshot = await getDocs(q);
-      const list: User[] = [];
-      snapshot.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as User);
-      });
-      setUsers(list);
-    } catch (error) {
-      console.error('사용자 목록 조회 실패:', error);
-    }
-  }, []);
-
   useEffect(() => {
     if (!userData) return;
-    fetchUsers();
     fetchVacations();
     fetchRequests();
-  }, [userData, fetchVacations, fetchRequests, fetchUsers]);
+  }, [userData, fetchVacations, fetchRequests]);
   
   // 대직자 기본값 설정 (본인)
   useEffect(() => {
@@ -281,12 +267,13 @@ const MyVacation: React.FC = () => {
   }, [requests, userData?.substituteHolidays?.join(',')]); // substituteHolidays 배열을 문자열로 변환하여 비교
   
   // 대체 휴무 신청 탭일 때 주기적으로 신청 목록 갱신 (승인 확인용)
+  // 5초 -> 60초로 변경하여 Firestore 읽기 횟수 절감
   useEffect(() => {
     if (!userData || activeTab !== 'substitute') return;
     
     const interval = setInterval(() => {
       fetchRequests();
-    }, 5000); // 5초마다 확인
+    }, 60000); // 60초마다 확인 (기존 5초에서 변경)
     
     return () => clearInterval(interval);
   }, [userData, activeTab, fetchRequests]);

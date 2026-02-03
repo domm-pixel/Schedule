@@ -12,7 +12,7 @@ code {
     monospace;
 }
 
-/* FullCalendar 커스터마이징 */
+/* FullCalendar 공통 커스터마이징 */
 .fc-daygrid-day {
   border: 1px solid #eee !important;
 }
@@ -46,6 +46,67 @@ code {
   font-size: 0.7rem;
   font-weight: 600;
   color: #007bff;
+}
+
+/* FullCalendar timeGrid (회의실 예약) 커스터마이징 */
+.fc-timegrid-slot {
+  cursor: crosshair;
+}
+
+.fc-timegrid-slot:hover {
+  background-color: rgba(52, 152, 219, 0.1);
+}
+
+.fc-timegrid-slot-lane {
+  cursor: crosshair;
+}
+
+.fc-timegrid-col-frame {
+  cursor: crosshair;
+}
+
+/* 드래그 선택 시 하이라이트 영역 */
+.fc-highlight {
+  background-color: rgba(52, 152, 219, 0.25) !important;
+  border: 2px dashed #3498db !important;
+  border-radius: 4px;
+}
+
+/* selectMirror 효과 - 드래그 중 늘어나는 미리보기 박스 (핵심!) */
+.fc-event-mirror {
+  background-color: rgba(52, 152, 219, 0.7) !important;
+  border: 2px solid #2980b9 !important;
+  border-radius: 6px !important;
+  opacity: 1 !important;
+  box-shadow: 0 4px 15px rgba(52, 152, 219, 0.5) !important;
+}
+
+.fc-timegrid-event.fc-event-mirror {
+  background-color: rgba(52, 152, 219, 0.7) !important;
+  border: 2px solid #2980b9 !important;
+  border-radius: 6px !important;
+}
+
+.fc-timegrid-event {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.fc-timegrid-slot-minor {
+  border-top-style: dotted;
+}
+
+/* 드래그 중 텍스트 선택 방지 */
+.fc-timegrid-body {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+}
+
+/* 선택 가능 표시 */
+.fc-timegrid-slots {
+  cursor: crosshair;
 }
 
 /* react-datepicker 커스터마이징 */
@@ -175,140 +236,76 @@ code {
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
 }
 
-/* FullCalendar 커스터마이징 */
-.fc-daygrid-day {
-  border: 1px solid #eee !important;
-}
-
-.fc-daygrid-day-frame {
-  padding: 0.25rem;
-}
-
-.fc-day-today {
-  background-color: #f0f8ff !important;
-}
-
-.fc-daygrid-day-top {
-  padding: 0.25rem 0.5rem;
-}
-
-.fc-event {
-  cursor: pointer;
-  border-radius: 4px;
-  padding: 2px 4px;
-  font-size: 0.75rem;
-}
-
-.fc-daygrid-event {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.fc-more-link {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: #007bff;
-}
-
-/* react-datepicker 커스터마이징 */
-.react-datepicker-wrapper {
-  width: 100%;
-  height: 38px;
-  display: flex;
-  align-items: center;
-}
-
-.react-datepicker__input-container input {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 1rem;
-  box-sizing: border-box;
-  height: 38px;
-}
-
-.react-datepicker {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  border: 1px solid #ddd;
+/* 타임피커 전용 스타일 */
+.react-datepicker--time-only {
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  width: auto;
+  min-width: 120px;
 }
 
-.react-datepicker__header {
-  background-color: #007bff;
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  padding-top: 0.75rem;
-}
-
-.react-datepicker__current-month {
-  color: white;
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-
-.react-datepicker__day-name {
-  color: white;
-  font-weight: 500;
-}
-
-.react-datepicker__day--selected,
-.react-datepicker__day--keyboard-selected {
-  background-color: #007bff;
-  border-radius: 4px;
-}
-
-.react-datepicker__day--selected:hover,
-.react-datepicker__day--keyboard-selected:hover {
-  background-color: #0056b3;
-}
-
-.react-datepicker__day:hover {
-  border-radius: 4px;
-  background-color: #e9ecef;
-}
-
-.react-datepicker__day--today {
-  font-weight: 600;
-  color: #007bff;
-}
-
-.react-datepicker__navigation-icon::before {
-  border-color: white;
-}
-
-.react-datepicker__navigation:hover *::before {
-  border-color: #e9ecef;
-}
-
-/* 연도/월 드롭다운 스타일 */
-.react-datepicker__month-dropdown,
-.react-datepicker__year-dropdown {
-  background-color: white;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.react-datepicker__month-option,
-.react-datepicker__year-option {
+.react-datepicker--time-only .react-datepicker__header {
+  background-color: #3498db;
   padding: 0.5rem;
-  cursor: pointer;
-  color: #333;
+  border-radius: 8px 8px 0 0;
 }
 
-.react-datepicker__month-option:hover,
-.react-datepicker__year-option:hover {
-  background-color: #f0f0f0;
+.react-datepicker--time-only .react-datepicker__header--time {
+  border-bottom: none;
 }
 
-.react-datepicker__month-option--selected,
-.react-datepicker__year-option--selected {
-  background-color: #007bff;
+.react-datepicker-time__header {
+  color: white;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.react-datepicker__time-container {
+  border-left: none;
+  width: 120px;
+}
+
+.react-datepicker__time-list {
+  height: 200px !important;
+}
+
+.react-datepicker__time-list-item {
+  padding: 0.5rem 1rem !important;
+  font-size: 0.9rem;
+}
+
+.react-datepicker__time-list-item:hover {
+  background-color: #ebf5ff !important;
+  color: #3498db;
+}
+
+.react-datepicker__time-list-item--selected {
+  background-color: #3498db !important;
+  font-weight: 600;
+}
+
+.react-datepicker__time-list-item--selected:hover {
+  background-color: #2980b9 !important;
   color: white;
 }
 
+/* 회의실 예약 모달의 타임피커 */
+.time-picker-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 1rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.time-picker-input:hover {
+  border-color: #3498db;
+}
+
+.time-picker-input:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}

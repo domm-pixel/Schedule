@@ -5,12 +5,14 @@ import { format, differenceInDays, parseISO, startOfDay, endOfWeek, startOfWeek 
 import { ko } from 'date-fns/locale';
 import { db } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
+import { useUsers } from '../context/UsersContext';
 import Sidebar from '../components/Sidebar';
 import UserDataForm from '../components/UserDataForm';
 import { Schedule, Post } from '../types';
 
 const Home: React.FC = () => {
   const { userData, currentUser, loading } = useAuth();
+  const { users } = useUsers();
   const history = useHistory();
 
   // 대시보드 데이터 상태
@@ -129,10 +131,8 @@ const Home: React.FC = () => {
           ...doc.data()
         })) as any[];
 
-      // 사용자 이름 가져오기
-      const usersQuery = query(collection(db, 'users'));
-      const usersSnapshot = await getDocs(usersQuery);
-      const usersMap = new Map(usersSnapshot.docs.map(doc => [doc.data().uid, doc.data().name]));
+      // 사용자 이름 가져오기 (UsersContext에서 캐시된 데이터 사용)
+      const usersMap = new Map(users.map(u => [u.uid, u.name]));
 
       const filteredVacations = vacationsData
         .filter(v => {

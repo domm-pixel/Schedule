@@ -43,6 +43,7 @@ export interface Schedule {
   endDate?: string; // 종료일 (ISO date string)
   startTime?: string; // 시작 시간 (HH:mm 형식, 미팅용)
   endTime?: string; // 종료 시간 (HH:mm 형식, 미팅용)
+  location?: '회의실' | '외부' | string; // 회의 장소 (미팅용)
   isPublic?: boolean; // 전사 스케줄 노출 여부 (기본값: false)
   note?: string; // 비고
   userId: string; // 사용자 ID (어떤 사용자의 업무인지)

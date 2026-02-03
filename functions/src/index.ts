@@ -154,3 +154,75 @@ export const onSubstituteHolidayRequestUpdated = functions
       console.error('대체휴무 신청 상태 변경 알림 처리 실패:', error);
     }
   });
+
+// 관리자용 비밀번호 초기화 함수 (HTTP 요청)
+export const resetUserPassword = functions
+  .region('asia-northeast3')
+  .https.onRequest(async (req, res) => {
+    // CORS 설정
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    // Preflight 요청 처리
+    if (req.method === 'OPTIONS') {
+      res.status(204).send('');
+      return;
+    }
+
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    try {
+      // Authorization 헤더에서 토큰 추출
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        res.status(401).json({ error: '인증 토큰이 필요합니다.' });
+        return;
+      }
+
+      const idToken = authHeader.split('Bearer ')[1];
+      
+      // 토큰 검증 및 사용자 정보 가져오기
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const callerUid = decodedToken.uid;
+
+      // 호출자가 관리자인지 확인
+      const callerDoc = await admin.firestore().collection('users').doc(callerUid).get();
+      if (!callerDoc.exists || callerDoc.data()?.role !== 'admin') {
+        res.status(403).json({ error: '관리자만 비밀번호를 초기화할 수 있습니다.' });
+        return;
+      }
+
+      // 대상 사용자 UID 확인
+      const { targetUid } = req.body;
+      if (!targetUid) {
+        res.status(400).json({ error: '대상 사용자 UID가 필요합니다.' });
+        return;
+      }
+
+      // 자기 자신의 비밀번호는 초기화 불가
+      if (targetUid === callerUid) {
+        res.status(400).json({ error: '자기 자신의 비밀번호는 초기화할 수 없습니다.' });
+        return;
+      }
+
+      // 비밀번호를 123456으로 초기화
+      await admin.auth().updateUser(targetUid, {
+        password: '123456',
+      });
+
+      console.log(`비밀번호 초기화 완료: ${targetUid} (by ${callerUid})`);
+      res.status(200).json({ success: true, message: '비밀번호가 123456으로 초기화되었습니다.' });
+    } catch (error: any) {
+      console.error('비밀번호 초기화 실패:', error);
+      
+      if (error.code === 'auth/user-not-found') {
+        res.status(404).json({ error: '대상 사용자를 찾을 수 없습니다.' });
+      } else {
+        res.status(500).json({ error: '비밀번호 초기화에 실패했습니다.' });
+      }
+    }
+  });

@@ -9,6 +9,7 @@ import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import html2canvas from 'html2canvas';
+import { useUsers } from '../context/UsersContext';
 
 type CalendarEvent = {
   id: string;
@@ -23,28 +24,23 @@ type CalendarEvent = {
 };
 
 const CompanyCalendar: React.FC = () => {
+  const { users } = useUsers();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null); // 선택된 특정 스케줄 ID
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<string>('전체');
-  const [usersMap, setUsersMap] = useState<{ [key: string]: User }>({});
   const [downloading, setDownloading] = useState(false);
   const calendarRef = useRef<HTMLDivElement>(null);
 
-  const fetchUsers = useCallback(async () => {
-    try {
-      const usersSnapshot = await getDocs(collection(db, 'users'));
-      const users: { [key: string]: User } = {};
-      usersSnapshot.forEach((docSnapshot) => {
-        const userData = { id: docSnapshot.id, ...docSnapshot.data() } as User;
-        users[userData.uid] = userData;
-      });
-      setUsersMap(users);
-    } catch (error) {
-      console.error('사용자 정보 가져오기 실패:', error);
-    }
-  }, []);
+  // UsersContext에서 가져온 users 배열을 usersMap 형태로 변환
+  const usersMap = useMemo(() => {
+    const map: { [key: string]: User } = {};
+    users.forEach((user) => {
+      map[user.uid] = user;
+    });
+    return map;
+  }, [users]);
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -143,9 +139,8 @@ const CompanyCalendar: React.FC = () => {
   }, [selectedUser]);
 
   useEffect(() => {
-    fetchUsers();
     fetchSchedules();
-  }, [fetchUsers, fetchSchedules]);
+  }, [fetchSchedules]);
 
   // Schedule을 FullCalendar Event로 변환
   const events = useMemo<CalendarEvent[]>(() => {

@@ -29,9 +29,19 @@ const Sidebar: React.FC = () => {
       icon: '🗓️',
     },
     {
+      title: '회의실 예약',
+      path: '/meeting-room',
+      icon: '🏢',
+    },
+    {
       title: '게시판',
       path: '/board',
       icon: '📝',
+    },
+    {
+      title: '내 정보 수정',
+      path: '/profile',
+      icon: '👤',
     },
   ];
 

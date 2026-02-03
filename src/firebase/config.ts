@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 // Firebase 설정 정보는 여기에 입력하세요
@@ -15,7 +15,15 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+
+// Firestore 오프라인 캐시 활성화 (신규 API 사용)
+// 이미 캐시된 데이터는 서버 요청 없이 로컬에서 반환
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
+
 const auth = getAuth(app);
 
 // 프로덕션 환경에서는 에뮬레이터 사용 안 함
